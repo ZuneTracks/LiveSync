@@ -1,0 +1,7 @@
+[Bb]in/
+[Oo]bj/
+[Aa]pp[Pp]ackages/
+.vs/
+*.pfx
+*.csproj.user
+BundleArtifacts/
