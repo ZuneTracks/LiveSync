@@ -414,6 +414,8 @@ namespace GraphMobileSync.Services
                 ReportSyncProgress(progress, "Syncing contacts...", completedItems, totalItems);
             }
 
+            HashSet<string> deletedContactIds = new HashSet<string>();
+
             foreach (KeyValuePair<string, string> mapping in mappings.ContactIds.ToList())
             {
                 if (!graphContactIds.Contains(mapping.Key))
@@ -423,6 +425,7 @@ namespace GraphMobileSync.Services
                     if (existingById.TryGetValue(mapping.Value, out removedContact))
                     {
                         await contactList.DeleteContactAsync(removedContact);
+                        deletedContactIds.Add(removedContact.Id);
                     }
 
                     await DeleteContactPhotoAsync(mapping.Key);
@@ -430,17 +433,11 @@ namespace GraphMobileSync.Services
                 }
             }
 
-            ISet<string> mappedLocalContactIds = new HashSet<string>(
-                mappings.ContactIds.Values.Where(id => !string.IsNullOrEmpty(id)));
-
-            foreach (Contact existingContact in existingContacts)
-            {
-                if (!mappedLocalContactIds.Contains(existingContact.Id))
-                {
-                    await contactList.DeleteContactAsync(existingContact);
-                    summary.DuplicateContactsRemoved++;
-                }
-            }
+            summary.DuplicateContactsRemoved += await RemoveUnmappedContactsAsync(
+                contactList,
+                existingContacts,
+                mappings,
+                deletedContactIds);
 
             return completedItems;
         }
@@ -459,6 +456,7 @@ namespace GraphMobileSync.Services
                     "Contact access was not granted. Enable contact access for LiveSync and try again.");
             }
 
+            string mappedContactListId = mappings.ContactListId;
             ContactList contactList = await GetContactListAsync(
                 contactStore,
                 mappings,
@@ -468,6 +466,7 @@ namespace GraphMobileSync.Services
             Dictionary<string, List<Contact>> existingByFingerprint =
                 GroupContactsByFingerprint(existingContacts);
             HashSet<string> claimedContactIds = new HashSet<string>();
+            HashSet<string> deletedContactIds = new HashSet<string>();
             HashSet<string> mappedContactIds = new HashSet<string>(
                 mappings.ContactIds.Values.Where(id => !string.IsNullOrEmpty(id)));
 
@@ -492,6 +491,7 @@ namespace GraphMobileSync.Services
                         {
                             await contactList.DeleteContactAsync(localContact);
                             existingById.Remove(localContactId);
+                            deletedContactIds.Add(localContactId);
                         }
 
                         await DeleteContactPhotoAsync(graphContactId);
@@ -540,6 +540,51 @@ namespace GraphMobileSync.Services
                 existingById[savedContactId] = updatedContact;
                 summary.Contacts++;
             }
+
+            // A delta response only describes changed contacts, so it can never prove that an
+            // unreferenced contact is stale the way a full sync can. The mapping table can, because it
+            // lists every contact LiveSync owns in this list. Only sweep when that table is populated
+            // and was built against this exact list: after a mapping reset, or when the canonical list
+            // changed, every contact would look unmapped and a delta sync would delete contacts it is
+            // not going to re-create.
+            if (mappings.ContactIds.Count > 0 && mappedContactListId == contactList.Id)
+            {
+                summary.DuplicateContactsRemoved += await RemoveUnmappedContactsAsync(
+                    contactList,
+                    existingContacts,
+                    mappings,
+                    deletedContactIds);
+            }
+        }
+
+        private static async Task<int> RemoveUnmappedContactsAsync(
+            ContactList contactList,
+            IEnumerable<Contact> existingContacts,
+            SyncMappings mappings,
+            HashSet<string> deletedContactIds)
+        {
+            ISet<string> mappedLocalContactIds = new HashSet<string>(
+                mappings.ContactIds.Values.Where(id => !string.IsNullOrEmpty(id)));
+            int removedContacts = 0;
+
+            foreach (Contact existingContact in existingContacts)
+            {
+                // deletedContactIds keeps this sweep from deleting a contact that the caller already
+                // removed in the same run. Those contacts are still in the snapshot taken before the
+                // sync and their mapping is gone, so they would otherwise be deleted twice and
+                // double-counted as duplicates.
+                if (mappedLocalContactIds.Contains(existingContact.Id)
+                    || deletedContactIds.Contains(existingContact.Id))
+                {
+                    continue;
+                }
+
+                await contactList.DeleteContactAsync(existingContact);
+                deletedContactIds.Add(existingContact.Id);
+                removedContacts++;
+            }
+
+            return removedContacts;
         }
 
         private static async Task ApplyAppointmentDeltaAsync(
