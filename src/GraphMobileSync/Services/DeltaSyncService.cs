@@ -120,11 +120,16 @@ namespace GraphMobileSync.Services
                     return new DeltaSyncResult(false, "No Microsoft Graph changes detected.");
                 }
 
-                await new GraphSyncService(_graphClient).ApplyDeltaAsync(
-                    contactDelta.Items,
-                    calendarChanges,
-                    currentCalendarIds,
-                    settings);
+                SyncSummary deltaSummary = await new GraphSyncService(_graphClient).ApplyDeltaAsync(
+                    contactChanges: contactDelta.Items,
+                    calendarChanges: calendarChanges,
+                    activeCalendarIds: currentCalendarIds,
+                    settings: settings);
+
+                // Background runs detect duplicate app-owned contact lists too. Discarding the plan
+                // left their contacts in the People app until the user ran a manual sync.
+                await GraphSyncService.CleanupDuplicateContactListsAsync(
+                    deltaSummary.CleanupPlan.ContactListIds);
                 await DeltaCheckpointService.SaveAsync(
                     new DeltaCheckpoint(contactDelta.DeltaLink, updatedCalendarLinks));
 

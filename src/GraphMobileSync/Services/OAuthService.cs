@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
-using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
 using Windows.Data.Json;
 using Windows.Security.Authentication.Web;
 using Windows.Security.Credentials;
+using Windows.Security.Cryptography;
+using Windows.Security.Cryptography.Core;
+using Windows.Storage.Streams;
 
 namespace GraphMobileSync.Services
 {
@@ -227,27 +228,24 @@ namespace GraphMobileSync.Services
 
         private static string CreateCodeVerifier()
         {
-            byte[] bytes = new byte[32];
-
-            using (RandomNumberGenerator provider = RandomNumberGenerator.Create())
-            {
-                provider.GetBytes(bytes);
-            }
-
-            return Base64UrlEncode(bytes);
+            return Base64UrlEncode(CryptographicBuffer.GenerateRandom(32));
         }
 
         private static string CreateCodeChallenge(string codeVerifier)
         {
-            using (SHA256 provider = SHA256.Create())
-            {
-                return Base64UrlEncode(provider.ComputeHash(Encoding.ASCII.GetBytes(codeVerifier)));
-            }
+            HashAlgorithmProvider provider = HashAlgorithmProvider.OpenAlgorithm(HashAlgorithmNames.Sha256);
+            IBuffer verifierBytes = CryptographicBuffer.ConvertStringToBinary(
+                codeVerifier,
+                BinaryStringEncoding.Utf8);
+            return Base64UrlEncode(provider.HashData(verifierBytes));
         }
 
-        private static string Base64UrlEncode(byte[] bytes)
+        private static string Base64UrlEncode(IBuffer bytes)
         {
-            return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+            return CryptographicBuffer.EncodeToBase64String(bytes)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
         }
 
         private sealed class GraphToken

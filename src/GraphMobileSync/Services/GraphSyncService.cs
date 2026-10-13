@@ -6,12 +6,31 @@ using System.Threading.Tasks;
 using Windows.ApplicationModel.Appointments;
 using Windows.ApplicationModel.Contacts;
 using Windows.Data.Json;
+using Windows.Security.Cryptography;
+using Windows.Security.Cryptography.Core;
+using Windows.Storage;
+using Windows.Storage.Streams;
 
 namespace GraphMobileSync.Services
 {
+    internal enum ContactPhotoResult
+    {
+        NoPhoto,
+        Stored,
+        NotStored
+    }
+
     internal sealed class SyncSummary
     {
         public int Contacts { get; set; }
+
+        public int ContactPhotosDownloaded { get; set; }
+
+        public int ContactPhotosStored { get; set; }
+
+        public int ContactsWithoutPhotos { get; set; }
+
+        public int DuplicateContactsRemoved { get; set; }
 
         public int Calendars { get; set; }
 
@@ -62,6 +81,7 @@ namespace GraphMobileSync.Services
     {
         private const string ContactListName = "Microsoft Graph";
         private const string CalendarPrefix = "Microsoft Graph - ";
+        private const string ContactPhotoFolderName = "ContactPhotos";
         private readonly GraphClient _graphClient;
 
         public GraphSyncService(GraphClient graphClient)
@@ -93,9 +113,8 @@ namespace GraphMobileSync.Services
             }
 
             ContactList contactList = await GetContactListAsync(contactStore, mappings, cleanupPlan);
-            IReadOnlyList<Contact> existingContacts = await contactStore.FindContactsAsync(contactList.Id);
+            IReadOnlyList<Contact> existingContacts = await GetContactsInListAsync(contactList);
             completedItems = await SyncContactsAsync(
-                contactStore,
                 contactList,
                 existingContacts,
                 graphContacts,
@@ -230,30 +249,11 @@ namespace GraphMobileSync.Services
                 return;
             }
 
-            ContactStore contactStore = await ContactManager.RequestStoreAsync(ContactStoreAccessType.AppContactsReadWrite);
+            await CleanupDuplicateContactListsAsync(cleanupPlan.ContactListIds);
 
-            if (contactStore == null)
+            if (cleanupPlan.CalendarIds.Count == 0)
             {
-                throw new InvalidOperationException("Contact access was not granted. Duplicate contacts were not removed.");
-            }
-
-            IReadOnlyList<ContactList> contactLists = await contactStore.FindContactListsAsync();
-
-            foreach (string contactListId in cleanupPlan.ContactListIds.Distinct())
-            {
-                ContactList duplicateList = contactLists.FirstOrDefault(list => list.Id == contactListId);
-
-                if (duplicateList == null)
-                {
-                    continue;
-                }
-
-                IReadOnlyList<Contact> duplicateContacts = await contactStore.FindContactsAsync(duplicateList.Id);
-
-                foreach (Contact contact in duplicateContacts)
-                {
-                    await duplicateList.DeleteContactAsync(contact);
-                }
+                return;
             }
 
             AppointmentStore appointmentStore = await AppointmentManager.RequestStoreAsync(
@@ -286,8 +286,68 @@ namespace GraphMobileSync.Services
             }
         }
 
-        private static async Task<int> SyncContactsAsync(
-            ContactStore contactStore,
+        public static async Task CleanupDuplicateContactListsAsync(
+            IEnumerable<string> duplicateContactListIds)
+        {
+            if (duplicateContactListIds == null)
+            {
+                return;
+            }
+
+            ContactStore contactStore = await ContactManager.RequestStoreAsync(ContactStoreAccessType.AppContactsReadWrite);
+
+            if (contactStore == null)
+            {
+                throw new InvalidOperationException("Contact access was not granted. Duplicate contacts were not removed.");
+            }
+
+            IReadOnlyList<ContactList> contactLists = await contactStore.FindContactListsAsync();
+
+            foreach (string contactListId in duplicateContactListIds.Distinct())
+            {
+                ContactList duplicateList = contactLists.FirstOrDefault(list => list.Id == contactListId);
+
+                if (duplicateList == null)
+                {
+                    continue;
+                }
+
+                IReadOnlyList<Contact> duplicateContacts = await GetContactsInListAsync(duplicateList);
+
+                foreach (Contact contact in duplicateContacts)
+                {
+                    await duplicateList.DeleteContactAsync(contact);
+                }
+
+                await RemoveEmptyContactListAsync(duplicateList);
+            }
+        }
+
+        private static async Task RemoveEmptyContactListAsync(ContactList contactList)
+        {
+            try
+            {
+                await contactList.DeleteAsync();
+                return;
+            }
+            catch (Exception)
+            {
+                // Windows 10 Mobile 15063 does not let an app delete its own contact list container.
+            }
+
+            try
+            {
+                // Hiding the emptied container keeps it out of the People app, including the
+                // "Link contacts" picker, which still lists app-owned lists that remain visible.
+                contactList.IsHidden = true;
+                await contactList.SaveAsync();
+            }
+            catch (Exception)
+            {
+            }
+        }
+
+        private async Task<int> SyncContactsAsync(
             ContactList contactList,
             IReadOnlyList<Contact> existingContacts,
             IList<JsonObject> graphContacts,
@@ -298,11 +358,12 @@ namespace GraphMobileSync.Services
             int completedItems)
         {
             Dictionary<string, Contact> existingById = existingContacts.ToDictionary(contact => contact.Id);
-            Dictionary<string, Contact> unmappedByFingerprint = existingContacts
-                .GroupBy(GetContactFingerprint)
-                .Where(group => !string.IsNullOrEmpty(group.Key) && group.Count() == 1)
-                .ToDictionary(group => group.Key, group => group.First());
+            Dictionary<string, List<Contact>> existingByFingerprint =
+                GroupContactsByFingerprint(existingContacts);
             HashSet<string> graphContactIds = new HashSet<string>();
+            HashSet<string> claimedContactIds = new HashSet<string>();
+            HashSet<string> mappedContactIds = new HashSet<string>(
+                mappings.ContactIds.Values.Where(id => !string.IsNullOrEmpty(id)));
 
             foreach (JsonObject graphContact in graphContacts)
             {
@@ -314,33 +375,30 @@ namespace GraphMobileSync.Services
                 }
 
                 graphContactIds.Add(graphContactId);
-                string localContactId;
-                Contact localContact = null;
-
-                if (mappings.ContactIds.TryGetValue(graphContactId, out localContactId))
-                {
-                    existingById.TryGetValue(localContactId, out localContact);
-                }
-
-                if (localContact == null)
-                {
-                    unmappedByFingerprint.TryGetValue(GetContactFingerprint(graphContact), out localContact);
-                }
+                Contact localContact = FindExistingContact(
+                    graphContactId,
+                    graphContact,
+                    mappings,
+                    existingById,
+                    existingByFingerprint,
+                    claimedContactIds,
+                    mappedContactIds);
 
                 if (localContact == null)
                 {
                     localContact = new Contact();
                 }
 
-                PopulateContact(localContact, graphContact);
-                await contactList.SaveContactAsync(localContact);
+                ContactPhotoResult photoResult =
+                    await SaveContactAsync(contactList, localContact, graphContact);
+                RecordContactPhotoResult(summary, photoResult);
+
                 string savedContactId = localContact.Id;
 
                 if (string.IsNullOrEmpty(savedContactId))
                 {
                     savedContactId = await FindSavedContactIdAsync(
-                        contactStore,
-                        contactList.Id,
+                        contactList,
                         GetContactFingerprint(graphContact));
                 }
 
@@ -350,6 +408,7 @@ namespace GraphMobileSync.Services
                 }
 
                 mappings.ContactIds[graphContactId] = savedContactId;
+                claimedContactIds.Add(savedContactId);
                 summary.Contacts++;
                 completedItems++;
                 ReportSyncProgress(progress, "Syncing contacts...", completedItems, totalItems);
@@ -366,25 +425,27 @@ namespace GraphMobileSync.Services
                         await contactList.DeleteContactAsync(removedContact);
                     }
 
+                    await DeleteContactPhotoAsync(mapping.Key);
                     mappings.ContactIds.Remove(mapping.Key);
                 }
             }
 
-            ISet<string> mappedContactIds = new HashSet<string>(
+            ISet<string> mappedLocalContactIds = new HashSet<string>(
                 mappings.ContactIds.Values.Where(id => !string.IsNullOrEmpty(id)));
 
             foreach (Contact existingContact in existingContacts)
             {
-                if (!mappedContactIds.Contains(existingContact.Id))
+                if (!mappedLocalContactIds.Contains(existingContact.Id))
                 {
                     await contactList.DeleteContactAsync(existingContact);
+                    summary.DuplicateContactsRemoved++;
                 }
             }
 
             return completedItems;
         }
 
-        private static async Task ApplyContactDeltaAsync(
+        private async Task ApplyContactDeltaAsync(
             IList<JsonObject> contactChanges,
             SyncMappings mappings,
             SyncSummary summary)
@@ -402,12 +463,13 @@ namespace GraphMobileSync.Services
                 contactStore,
                 mappings,
                 summary.CleanupPlan);
-            IReadOnlyList<Contact> existingContacts = await contactStore.FindContactsAsync(contactList.Id);
+            IReadOnlyList<Contact> existingContacts = await GetContactsInListAsync(contactList);
             Dictionary<string, Contact> existingById = existingContacts.ToDictionary(contact => contact.Id);
-            Dictionary<string, Contact> unmappedByFingerprint = existingContacts
-                .GroupBy(GetContactFingerprint)
-                .Where(group => !string.IsNullOrEmpty(group.Key) && group.Count() == 1)
-                .ToDictionary(group => group.Key, group => group.First());
+            Dictionary<string, List<Contact>> existingByFingerprint =
+                GroupContactsByFingerprint(existingContacts);
+            HashSet<string> claimedContactIds = new HashSet<string>();
+            HashSet<string> mappedContactIds = new HashSet<string>(
+                mappings.ContactIds.Values.Where(id => !string.IsNullOrEmpty(id)));
 
             foreach (JsonObject graphContact in contactChanges)
             {
@@ -432,6 +494,7 @@ namespace GraphMobileSync.Services
                             existingById.Remove(localContactId);
                         }
 
+                        await DeleteContactPhotoAsync(graphContactId);
                         mappings.ContactIds.Remove(graphContactId);
                     }
 
@@ -439,32 +502,30 @@ namespace GraphMobileSync.Services
                     continue;
                 }
 
-                Contact updatedContact = null;
-
-                if (mappings.ContactIds.TryGetValue(graphContactId, out localContactId))
-                {
-                    existingById.TryGetValue(localContactId, out updatedContact);
-                }
-
-                if (updatedContact == null)
-                {
-                    unmappedByFingerprint.TryGetValue(GetContactFingerprint(graphContact), out updatedContact);
-                }
+                Contact updatedContact = FindExistingContact(
+                    graphContactId,
+                    graphContact,
+                    mappings,
+                    existingById,
+                    existingByFingerprint,
+                    claimedContactIds,
+                    mappedContactIds);
 
                 if (updatedContact == null)
                 {
                     updatedContact = new Contact();
                 }
 
-                PopulateContact(updatedContact, graphContact);
-                await contactList.SaveContactAsync(updatedContact);
+                ContactPhotoResult photoResult =
+                    await SaveContactAsync(contactList, updatedContact, graphContact);
+                RecordContactPhotoResult(summary, photoResult);
+
                 string savedContactId = updatedContact.Id;
 
                 if (string.IsNullOrEmpty(savedContactId))
                 {
                     savedContactId = await FindSavedContactIdAsync(
-                        contactStore,
-                        contactList.Id,
+                        contactList,
                         GetContactFingerprint(graphContact));
                 }
 
@@ -475,6 +536,7 @@ namespace GraphMobileSync.Services
                 }
 
                 mappings.ContactIds[graphContactId] = savedContactId;
+                claimedContactIds.Add(savedContactId);
                 existingById[savedContactId] = updatedContact;
                 summary.Contacts++;
             }
@@ -680,15 +742,28 @@ namespace GraphMobileSync.Services
             SyncCleanupPlan cleanupPlan)
         {
             IReadOnlyList<ContactList> lists = await contactStore.FindContactListsAsync();
-            List<ContactList> matchingLists = lists
-                .Where(list => list.DisplayName == ContactListName)
-                .ToList();
-            ContactList contactList = matchingLists.FirstOrDefault(list => list.Id == mappings.ContactListId)
-                ?? matchingLists.FirstOrDefault()
+
+            // The store is opened with AppContactsReadWrite, so every list returned here is already
+            // owned by LiveSync. Matching on display name alone stranded app-owned lists saved under
+            // any other name: they were never treated as duplicates, so their contacts stayed visible
+            // in the People app and kept showing up in its "Link contacts" picker.
+            ContactList contactList = lists.FirstOrDefault(list => list.Id == mappings.ContactListId)
+                ?? lists.FirstOrDefault(list => list.DisplayName == ContactListName)
+                ?? lists.FirstOrDefault()
                 ?? await contactStore.CreateContactListAsync(ContactListName);
+
+            if (contactList.DisplayName != ContactListName || contactList.IsHidden)
+            {
+                // Un-hide as well as rename: a container hidden by an earlier cleanup pass must never
+                // stay hidden once it is the canonical list, or synced contacts would be invisible.
+                contactList.DisplayName = ContactListName;
+                contactList.IsHidden = false;
+                await contactList.SaveAsync();
+            }
+
             mappings.ContactListId = contactList.Id;
 
-            foreach (ContactList duplicateList in matchingLists.Where(list => list.Id != contactList.Id))
+            foreach (ContactList duplicateList in lists.Where(list => list.Id != contactList.Id))
             {
                 cleanupPlan.ContactListIds.Add(duplicateList.Id);
             }
@@ -696,12 +771,111 @@ namespace GraphMobileSync.Services
             return contactList;
         }
 
+        private static Dictionary<string, List<Contact>> GroupContactsByFingerprint(
+            IEnumerable<Contact> contacts)
+        {
+            Dictionary<string, List<Contact>> contactsByFingerprint =
+                new Dictionary<string, List<Contact>>();
+
+            foreach (Contact contact in contacts)
+            {
+                string fingerprint = GetContactFingerprint(contact);
+
+                if (string.IsNullOrEmpty(fingerprint))
+                {
+                    continue;
+                }
+
+                List<Contact> contactsWithFingerprint;
+
+                if (!contactsByFingerprint.TryGetValue(fingerprint, out contactsWithFingerprint))
+                {
+                    contactsWithFingerprint = new List<Contact>();
+                    contactsByFingerprint[fingerprint] = contactsWithFingerprint;
+                }
+
+                contactsWithFingerprint.Add(contact);
+            }
+
+            return contactsByFingerprint;
+        }
+
+        private static Contact FindExistingContact(
+            string graphContactId,
+            JsonObject graphContact,
+            SyncMappings mappings,
+            IDictionary<string, Contact> existingById,
+            IDictionary<string, List<Contact>> existingByFingerprint,
+            ISet<string> claimedContactIds,
+            ISet<string> mappedContactIds)
+        {
+            string mappedContactId = string.Empty;
+            Contact mappedContact;
+
+            if (mappings.ContactIds.TryGetValue(graphContactId, out mappedContactId)
+                && existingById.TryGetValue(mappedContactId, out mappedContact)
+                && !claimedContactIds.Contains(mappedContact.Id))
+            {
+                return mappedContact;
+            }
+
+            List<Contact> contactsWithFingerprint;
+
+            if (!existingByFingerprint.TryGetValue(
+                    GetContactFingerprint(graphContact),
+                    out contactsWithFingerprint))
+            {
+                return null;
+            }
+
+            foreach (Contact contact in contactsWithFingerprint)
+            {
+                if (claimedContactIds.Contains(contact.Id))
+                {
+                    continue;
+                }
+
+                if (mappedContactIds.Contains(contact.Id)
+                    && !string.Equals(contact.Id, mappedContactId, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                return contact;
+            }
+
+            return null;
+        }
+
+        private static async Task<IReadOnlyList<Contact>> GetContactsInListAsync(ContactList contactList)
+        {
+            // ContactStore.FindContactsAsync(string) is a full-text search over contact fields, not a
+            // lookup by contact list ID. Passing a list ID to it always matched zero contacts, so the
+            // sync treated every list as empty: nothing was ever reused and no stale entry was ever
+            // deleted. A ContactReader is the only way to enumerate the contacts in one list.
+            List<Contact> contacts = new List<Contact>();
+            ContactReader reader = contactList.GetContactReader();
+
+            while (true)
+            {
+                ContactBatch batch = await reader.ReadBatchAsync();
+
+                if (batch.Status != ContactBatchStatus.Success || batch.Contacts.Count == 0)
+                {
+                    break;
+                }
+
+                contacts.AddRange(batch.Contacts);
+            }
+
+            return contacts;
+        }
+
         private static async Task<string> FindSavedContactIdAsync(
-            ContactStore contactStore,
-            string contactListId,
+            ContactList contactList,
             string fingerprint)
         {
-            IReadOnlyList<Contact> savedContacts = await contactStore.FindContactsAsync(contactListId);
+            IReadOnlyList<Contact> savedContacts = await GetContactsInListAsync(contactList);
             List<Contact> matchingContacts = savedContacts
                 .Where(contact => GetContactFingerprint(contact) == fingerprint)
                 .ToList();
@@ -851,6 +1025,128 @@ namespace GraphMobileSync.Services
                     AddPhoneNumber(contact, businessPhone.GetString(), ContactPhoneKind.Work);
                 }
             }
+        }
+
+        private async Task<ContactPhotoResult> SaveContactAsync(
+            ContactList contactList,
+            Contact contact,
+            JsonObject graphContact)
+        {
+            string graphContactId = JsonValueReader.GetString(graphContact, "id", string.Empty);
+
+            if (string.IsNullOrEmpty(graphContactId))
+            {
+                throw new InvalidOperationException(
+                    "LiveSync could not save a contact without a Microsoft Graph ID.");
+            }
+
+            PopulateContact(contact, graphContact);
+            byte[] photoBytes = await _graphClient.GetContactPhotoAsync(graphContactId);
+
+            if (photoBytes == null)
+            {
+                await contactList.SaveContactAsync(contact);
+                return ContactPhotoResult.NoPhoto;
+            }
+
+            if (photoBytes.Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "Microsoft Graph returned an empty contact photo.");
+            }
+
+            StorageFile photoFile = await SaveContactPhotoAsync(graphContactId, photoBytes);
+            IRandomAccessStreamReference photoReference =
+                RandomAccessStreamReference.CreateFromFile(photoFile);
+
+            // Windows generates SmallDisplayPicture, LargeDisplayPicture and Thumbnail from
+            // SourceDisplayPicture, and the People app renders those generated images. Setting
+            // Thumbnail on its own leaves the display pictures empty, so the photo never appears.
+            contact.SourceDisplayPicture = photoReference;
+            contact.Thumbnail = photoReference;
+            await contactList.SaveContactAsync(contact);
+
+            return await HasStoredDisplayPictureAsync(contactList, contact)
+                ? ContactPhotoResult.Stored
+                : ContactPhotoResult.NotStored;
+        }
+
+        private static void RecordContactPhotoResult(SyncSummary summary, ContactPhotoResult photoResult)
+        {
+            if (photoResult == ContactPhotoResult.NoPhoto)
+            {
+                summary.ContactsWithoutPhotos++;
+                return;
+            }
+
+            summary.ContactPhotosDownloaded++;
+
+            if (photoResult == ContactPhotoResult.Stored)
+            {
+                summary.ContactPhotosStored++;
+            }
+        }
+
+        private static async Task<bool> HasStoredDisplayPictureAsync(
+            ContactList contactList,
+            Contact contact)
+        {
+            if (string.IsNullOrEmpty(contact.Id))
+            {
+                return false;
+            }
+
+            try
+            {
+                Contact savedContact = await contactList.GetContactAsync(contact.Id);
+                return savedContact != null
+                    && (savedContact.SourceDisplayPicture != null
+                        || savedContact.SmallDisplayPicture != null
+                        || savedContact.Thumbnail != null);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        private static async Task<StorageFile> SaveContactPhotoAsync(
+            string graphContactId,
+            byte[] photoBytes)
+        {
+            StorageFolder photoFolder = await ApplicationData.Current.LocalFolder.CreateFolderAsync(
+                ContactPhotoFolderName,
+                CreationCollisionOption.OpenIfExists);
+            StorageFile photoFile = await photoFolder.CreateFileAsync(
+                GetContactPhotoFileName(graphContactId),
+                CreationCollisionOption.ReplaceExisting);
+            await FileIO.WriteBytesAsync(photoFile, photoBytes);
+            return photoFile;
+        }
+
+        private static async Task DeleteContactPhotoAsync(string graphContactId)
+        {
+            try
+            {
+                StorageFolder photoFolder = await ApplicationData.Current.LocalFolder.GetFolderAsync(
+                    ContactPhotoFolderName);
+                StorageFile photoFile = await photoFolder.GetFileAsync(
+                    GetContactPhotoFileName(graphContactId));
+                await photoFile.DeleteAsync();
+            }
+            catch (System.IO.FileNotFoundException)
+            {
+            }
+        }
+
+        private static string GetContactPhotoFileName(string graphContactId)
+        {
+            HashAlgorithmProvider algorithm = HashAlgorithmProvider.OpenAlgorithm(HashAlgorithmNames.Sha256);
+            IBuffer graphContactIdBuffer = CryptographicBuffer.ConvertStringToBinary(
+                graphContactId,
+                BinaryStringEncoding.Utf8);
+            return CryptographicBuffer.EncodeToHexString(
+                algorithm.HashData(graphContactIdBuffer)) + ".jpg";
         }
 
         private static void AddPhoneNumber(Contact contact, string number, ContactPhoneKind kind)

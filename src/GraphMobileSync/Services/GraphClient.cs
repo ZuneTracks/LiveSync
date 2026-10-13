@@ -96,6 +96,47 @@ namespace GraphMobileSync.Services
             return new GraphDeltaResult(items, deltaLink);
         }
 
+        public async Task<byte[]> GetContactPhotoAsync(string contactId)
+        {
+            if (string.IsNullOrWhiteSpace(contactId))
+            {
+                throw new ArgumentException("A contact ID is required.", nameof(contactId));
+            }
+
+            Uri requestUri = CreateRequestUri(string.Format(
+                "/v1.0/me/contacts/{0}/photo/$value",
+                Uri.EscapeDataString(contactId)));
+            TimeSpan deferredDelay;
+
+            if (GraphThrottleState.TryGetRemainingDelay(out deferredDelay))
+            {
+                throw new GraphThrottledException(deferredDelay);
+            }
+
+            using (HttpResponseMessage response = await _httpClient.GetAsync(requestUri))
+            {
+                if ((int)response.StatusCode == 429)
+                {
+                    TimeSpan retryAfter = GetRetryAfter(response.Headers);
+                    GraphThrottleState.Defer(retryAfter);
+                    throw new GraphThrottledException(retryAfter);
+                }
+
+                if ((int)response.StatusCode == 404)
+                {
+                    return null;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new InvalidOperationException(
+                        "Microsoft Graph contact photo request failed: " + response.ReasonPhrase);
+                }
+
+                return await response.Content.ReadAsByteArrayAsync();
+            }
+        }
+
         public void Dispose()
         {
             _httpClient.Dispose();

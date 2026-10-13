@@ -4,7 +4,7 @@
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   IgnorableNamespaces="uap mp">
-  <Identity Name="ZuneTracks.LiveSync" Publisher="CN=3ED86B18-5F5F-4AE0-AA9C-697B841F55A7" Version="1.0.5.0" />
+  <Identity Name="ZuneTracks.LiveSync" Publisher="CN=3ED86B18-5F5F-4AE0-AA9C-697B841F55A7" Version="1.2.0.0" />
   <mp:PhoneIdentity PhoneProductId="b7644412-40d8-4bb2-bd5a-cc088243517d" PhonePublisherId="A0B7114E-EE9C-49D9-98CC-9B2469119F9D" />
   <Properties>
     <DisplayName>LiveSync</DisplayName>
@@ -12,7 +12,7 @@
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   <Dependencies>
-    <TargetDeviceFamily Name="Windows.Mobile" MinVersion="10.0.15063.0" MaxVersionTested="10.0.15063.0" />
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.15063.0" MaxVersionTested="10.0.15063.0" />
   </Dependencies>
   <Resources>
     <Resource Language="x-generate" />
@@ -20,7 +20,13 @@
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="GraphMobileSync.App">
       <uap:VisualElements DisplayName="LiveSync" Description="Sync Microsoft Graph contacts and calendars to Windows 10 Mobile" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png">
-        <uap:DefaultTile Square71x71Logo="Assets\Square71x71Logo.png" Wide310x150Logo="Assets\Wide310x150Logo.png" Square310x310Logo="Assets\Square310x310Logo.png" />
+        <uap:DefaultTile Square71x71Logo="Assets\Square71x71Logo.png" Wide310x150Logo="Assets\Wide310x150Logo.png" Square310x310Logo="Assets\Square310x310Logo.png"  ShortName="LiveSync">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo"/>
+            <uap:ShowOn Tile="wide310x150Logo"/>
+            <uap:ShowOn Tile="square310x310Logo"/>
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile >
       </uap:VisualElements>
     </Application>
   </Applications>

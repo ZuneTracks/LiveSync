@@ -19,12 +19,12 @@ After you sign in and grant permission, LiveSync requests the following delegate
 
 Depending on the information available in your Microsoft account, LiveSync reads:
 
-- contact identifiers, names, email addresses, mobile phone numbers, and business phone numbers;
+- contact identifiers, names, email addresses, mobile phone numbers, business phone numbers, and contact photos;
 - calendar names and identifiers;
 - event identifiers, subjects, body previews, start and end times, locations, and all-day status; and
 - synchronization preferences, locally generated identifiers that associate Graph items with device items, Graph delta links, and a limited recent synchronization-status history.
 
-LiveSync does not request permission to create, edit, or delete data in your Microsoft account. It does not read email, files, photos, messages, or device location.
+LiveSync does not request permission to create, edit, or delete data in your Microsoft account. It does not read email, files, messages, or device location.
 
 ## How LiveSync uses information
 
@@ -41,7 +41,7 @@ LiveSync may check Microsoft Graph for changes in the background, subject to Win
 
 ## Where information is stored
 
-LiveSync stores synchronization mappings, delta checkpoints, preferences, and limited diagnostic history in the app's local storage on your device. A Microsoft Graph refresh token is stored in the Windows Credential Locker, an operating-system-managed credential store.
+LiveSync stores synchronization mappings, delta checkpoints, downloaded contact photos, preferences, and limited diagnostic history in the app's local storage on your device. A Microsoft Graph refresh token is stored in the Windows Credential Locker, an operating-system-managed credential store.
 
 Contacts and calendar events that LiveSync copies are stored in LiveSync-owned lists and calendars in the Windows People and Calendar stores. These local copies may be visible through the Windows People and Calendar apps.
 
