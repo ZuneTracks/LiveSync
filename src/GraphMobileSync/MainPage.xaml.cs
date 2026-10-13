@@ -126,16 +126,29 @@ namespace GraphMobileSync
                     BackgroundSyncRegistration.Unregister();
                 }
 
+                int duplicateContactListCount = summary.CleanupPlan.ContactListIds.Distinct().Count();
+
+                if (duplicateContactListCount > 0)
+                {
+                    await GraphSyncService.CleanupDuplicateContactListsAsync(
+                        summary.CleanupPlan.ContactListIds);
+                }
+
                 string summaryText = string.Format(
-                    "Sync complete: {0} contacts and {1} events added to {2} calendars.",
+                    "Sync complete: {0} contacts ({1} photos downloaded, {2} saved to the People app; {3} contacts have no Graph photo), {4} events added to {5} calendars, {6} duplicate contacts removed, and {7} duplicate LiveSync lists cleared.",
                     summary.Contacts,
+                    summary.ContactPhotosDownloaded,
+                    summary.ContactPhotosStored,
+                    summary.ContactsWithoutPhotos,
                     summary.Events,
-                    summary.Calendars);
+                    summary.Calendars,
+                    summary.DuplicateContactsRemoved,
+                    duplicateContactListCount);
                 BackgroundSyncDiagnostics.Record(syncSettings.BackgroundSyncEnabled
                     ? "Background change checks are registered."
                     : "Manual sync completed; background sync is disabled.");
                 StatusTextBlock.Text = summaryText;
-                await ConfirmDuplicateCleanupAsync(summary.CleanupPlan);
+                await ConfirmDuplicateCalendarCleanupAsync(summary.CleanupPlan);
             }
             catch (Exception exception)
             {
@@ -245,30 +258,29 @@ namespace GraphMobileSync
             return syncSettings;
         }
 
-        private async System.Threading.Tasks.Task ConfirmDuplicateCleanupAsync(SyncCleanupPlan cleanupPlan)
+        private async System.Threading.Tasks.Task ConfirmDuplicateCalendarCleanupAsync(
+            SyncCleanupPlan cleanupPlan)
         {
-            if (cleanupPlan == null || !cleanupPlan.HasItems)
+            if (cleanupPlan == null || cleanupPlan.CalendarIds.Count == 0)
             {
                 return;
             }
 
-            string content = string.Format(
-                "LiveSync found {0} duplicate contact list(s) and {1} duplicate calendar(s) created by an earlier version. Clear only the data inside those duplicate LiveSync lists and calendars?",
-                cleanupPlan.ContactListIds.Count,
-                cleanupPlan.CalendarIds.Count);
             ContentDialog dialog = new ContentDialog
             {
-                Title = "Remove duplicate LiveSync data?",
-                Content = content,
-                PrimaryButtonText = "Clear duplicates",
+                Title = "Remove duplicate LiveSync calendars?",
+                Content = string.Format(
+                    "LiveSync found {0} duplicate calendar(s) created by an earlier version. Clear only the data inside those duplicate LiveSync calendars?",
+                    cleanupPlan.CalendarIds.Count),
+                PrimaryButtonText = "Clear duplicate calendars",
                 CloseButtonText = "Keep for now"
             };
 
             if (await dialog.ShowAsync() == ContentDialogResult.Primary)
             {
                 await GraphSyncService.CleanupDuplicatesAsync(cleanupPlan);
-                BackgroundSyncDiagnostics.Record("Cleared duplicate LiveSync contact lists and calendars.");
-                StatusTextBlock.Text = "Sync complete and duplicate LiveSync data was cleared.";
+                BackgroundSyncDiagnostics.Record("Cleared duplicate LiveSync calendars.");
+                StatusTextBlock.Text = "Sync complete and duplicate LiveSync calendars were cleared.";
             }
         }
 
