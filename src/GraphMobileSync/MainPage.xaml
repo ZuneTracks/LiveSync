@@ -34,14 +34,14 @@
                         <ScrollViewer MaxHeight="400">
                             <StackPanel Width="280" Margin="20">
                                 <TextBlock Text="About LiveSync" Style="{ThemeResource TitleTextBlockStyle}" />
+                                <TextBlock x:Name="BuildVersionTextBlock" Margin="0,12,0,0" />
                                 <TextBlock Margin="0,12,0,0" Text="LiveSync brings your Microsoft Graph contacts and calendars to the built-in People and Calendar apps on Windows 10 Mobile." />
                                 <TextBlock Margin="0,12,0,0">
-                                    <Run Text="Developed by " />
+                                    <Run Text="Developed by&#160;" />
                                     <Hyperlink NavigateUri="https://github.com/ZuneTracks">
                                         <Run Text="ZuneTracks" />
                                     </Hyperlink>
                                 </TextBlock>
-                                <TextBlock x:Name="BuildVersionTextBlock" Margin="0,12,0,0" />
                             </StackPanel>
                         </ScrollViewer>
                     </Flyout>
