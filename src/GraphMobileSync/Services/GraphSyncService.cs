@@ -275,14 +275,7 @@ namespace GraphMobileSync.Services
                     continue;
                 }
 
-                IReadOnlyList<Appointment> duplicateAppointments = await duplicateCalendar.FindAppointmentsAsync(
-                    DateTimeOffset.Now.AddYears(-20),
-                    TimeSpan.FromDays(14600));
-
-                foreach (Appointment appointment in duplicateAppointments)
-                {
-                    await duplicateCalendar.DeleteAppointmentAsync(appointment.LocalId);
-                }
+                await duplicateCalendar.DeleteAsync();
             }
         }
 
@@ -408,6 +401,8 @@ namespace GraphMobileSync.Services
                 }
 
                 mappings.ContactIds[graphContactId] = savedContactId;
+                mappings.ContactFingerprints[graphContactId] =
+                    SyncContentFingerprint.ForContact(localContact);
                 claimedContactIds.Add(savedContactId);
                 summary.Contacts++;
                 completedItems++;
@@ -430,6 +425,7 @@ namespace GraphMobileSync.Services
 
                     await DeleteContactPhotoAsync(mapping.Key);
                     mappings.ContactIds.Remove(mapping.Key);
+                    mappings.ContactFingerprints.Remove(mapping.Key);
                 }
             }
 
@@ -496,6 +492,7 @@ namespace GraphMobileSync.Services
 
                         await DeleteContactPhotoAsync(graphContactId);
                         mappings.ContactIds.Remove(graphContactId);
+                        mappings.ContactFingerprints.Remove(graphContactId);
                     }
 
                     summary.Contacts++;
@@ -536,6 +533,8 @@ namespace GraphMobileSync.Services
                 }
 
                 mappings.ContactIds[graphContactId] = savedContactId;
+                mappings.ContactFingerprints[graphContactId] =
+                    SyncContentFingerprint.ForContact(updatedContact);
                 claimedContactIds.Add(savedContactId);
                 existingById[savedContactId] = updatedContact;
                 summary.Contacts++;
@@ -627,6 +626,7 @@ namespace GraphMobileSync.Services
                         }
 
                         calendarMapping.EventIds.Remove(graphEventId);
+                        calendarMapping.EventFingerprints.Remove(graphEventId);
                     }
 
                     summary.Events++;
@@ -678,6 +678,8 @@ namespace GraphMobileSync.Services
                 }
 
                 calendarMapping.EventIds[graphEventId] = localAppointmentId;
+                calendarMapping.EventFingerprints[graphEventId] =
+                    SyncContentFingerprint.ForAppointment(updatedAppointment);
                 appointmentIdsInWindow.Add(localAppointmentId);
                 existingById[localAppointmentId] = updatedAppointment;
                 summary.Events++;
@@ -689,6 +691,7 @@ namespace GraphMobileSync.Services
                     || !appointmentIdsInWindow.Contains(mapping.Value))
                 {
                     calendarMapping.EventIds.Remove(mapping.Key);
+                    calendarMapping.EventFingerprints.Remove(mapping.Key);
                 }
             }
         }
@@ -749,6 +752,8 @@ namespace GraphMobileSync.Services
                 }
 
                 calendarMapping.EventIds[sourceEvent.GraphId] = localAppointmentId;
+                calendarMapping.EventFingerprints[sourceEvent.GraphId] =
+                    SyncContentFingerprint.ForAppointment(localAppointment);
                 summary.Events++;
                 completedItems++;
                 ReportSyncProgress(progress, "Syncing calendar events...", completedItems, totalItems);
@@ -764,6 +769,7 @@ namespace GraphMobileSync.Services
                     }
 
                     calendarMapping.EventIds.Remove(mapping.Key);
+                    calendarMapping.EventFingerprints.Remove(mapping.Key);
                 }
             }
 
@@ -966,6 +972,13 @@ namespace GraphMobileSync.Services
             AppointmentCalendar calendar = matchingCalendars.FirstOrDefault(item => item.LocalId == mapping.LocalId)
                 ?? matchingCalendars.FirstOrDefault()
                 ?? await appointmentStore.CreateAppointmentCalendarAsync(displayName);
+
+            if (calendar.OtherAppWriteAccess != AppointmentCalendarOtherAppWriteAccess.SystemOnly)
+            {
+                calendar.OtherAppWriteAccess = AppointmentCalendarOtherAppWriteAccess.SystemOnly;
+                await calendar.SaveAsync();
+            }
+
             mapping.LocalId = calendar.LocalId;
             mapping.DisplayName = graphCalendarDisplayName;
 

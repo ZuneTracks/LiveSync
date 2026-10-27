@@ -9,12 +9,15 @@ namespace GraphMobileSync.Services
     {
         private const string BackgroundEnabledKey = "BackgroundSyncEnabled";
         private const string FailureNotificationsEnabledKey = "FailureNotificationsEnabled";
+        private const string TwoWaySyncEnabledKey = "TwoWaySyncEnabled";
         private const string CalendarNamesKey = "SelectedCalendarNames";
         private const string EventWindowKey = "EventWindowMonths";
 
         public bool BackgroundSyncEnabled { get; set; }
 
         public bool FailureNotificationsEnabled { get; set; }
+
+        public bool TwoWaySyncEnabled { get; set; }
 
         public string CalendarNames { get; set; }
 
@@ -27,6 +30,7 @@ namespace GraphMobileSync.Services
             {
                 BackgroundSyncEnabled = GetBoolean(settings, BackgroundEnabledKey, true),
                 FailureNotificationsEnabled = GetBoolean(settings, FailureNotificationsEnabledKey, false),
+                TwoWaySyncEnabled = GetBoolean(settings, TwoWaySyncEnabledKey, false),
                 CalendarNames = settings.Values[CalendarNamesKey] as string ?? string.Empty,
                 EventWindowMonths = GetInt32(settings, EventWindowKey, 12)
             };
@@ -37,6 +41,7 @@ namespace GraphMobileSync.Services
             ApplicationDataContainer settings = ApplicationData.Current.LocalSettings;
             settings.Values[BackgroundEnabledKey] = BackgroundSyncEnabled;
             settings.Values[FailureNotificationsEnabledKey] = FailureNotificationsEnabled;
+            settings.Values[TwoWaySyncEnabledKey] = TwoWaySyncEnabled;
             settings.Values[CalendarNamesKey] = CalendarNames ?? string.Empty;
             settings.Values[EventWindowKey] = EventWindowMonths;
         }

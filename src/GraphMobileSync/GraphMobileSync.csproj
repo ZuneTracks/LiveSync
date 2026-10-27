@@ -87,9 +87,12 @@
     <Compile Include="Services\GraphThrottleState.cs" />
     <Compile Include="Services\GraphSyncService.cs" />
     <Compile Include="Services\JsonValueReader.cs" />
+    <Compile Include="Services\LiveSyncProService.cs" />
     <Compile Include="Services\OAuthService.cs" />
     <Compile Include="Services\SyncMappings.cs" />
+    <Compile Include="Services\SyncContentFingerprint.cs" />
     <Compile Include="Services\SyncSettings.cs" />
+    <Compile Include="Services\TwoWaySyncService.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>

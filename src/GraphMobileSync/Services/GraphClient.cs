@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Threading.Tasks;
 using Windows.Data.Json;
 
@@ -137,6 +138,58 @@ namespace GraphMobileSync.Services
             }
         }
 
+        public Task<JsonObject> CreateContactAsync(JsonObject contact)
+        {
+            return SendJsonAsync(HttpMethod.Post, "/v1.0/me/contacts", contact);
+        }
+
+        public Task<JsonObject> UpdateContactAsync(string contactId, JsonObject contact)
+        {
+            return SendJsonAsync(
+                new HttpMethod("PATCH"),
+                string.Format("/v1.0/me/contacts/{0}", Uri.EscapeDataString(contactId)),
+                contact);
+        }
+
+        public Task DeleteContactAsync(string contactId)
+        {
+            return SendDeleteAsync(
+                string.Format("/v1.0/me/contacts/{0}", Uri.EscapeDataString(contactId)));
+        }
+
+        public Task<JsonObject> CreateEventAsync(string calendarId, JsonObject calendarEvent)
+        {
+            return SendJsonAsync(
+                HttpMethod.Post,
+                string.Format(
+                    "/v1.0/me/calendars/{0}/events",
+                    Uri.EscapeDataString(calendarId)),
+                calendarEvent);
+        }
+
+        public Task<JsonObject> UpdateEventAsync(
+            string calendarId,
+            string eventId,
+            JsonObject calendarEvent)
+        {
+            return SendJsonAsync(
+                new HttpMethod("PATCH"),
+                string.Format(
+                    "/v1.0/me/calendars/{0}/events/{1}",
+                    Uri.EscapeDataString(calendarId),
+                    Uri.EscapeDataString(eventId)),
+                calendarEvent);
+        }
+
+        public Task DeleteEventAsync(string calendarId, string eventId)
+        {
+            return SendDeleteAsync(
+                string.Format(
+                    "/v1.0/me/calendars/{0}/events/{1}",
+                    Uri.EscapeDataString(calendarId),
+                    Uri.EscapeDataString(eventId)));
+        }
+
         public void Dispose()
         {
             _httpClient.Dispose();
@@ -180,6 +233,83 @@ namespace GraphMobileSync.Services
                 }
 
                 return JsonObject.Parse(payload);
+            }
+        }
+
+        private async Task<JsonObject> SendJsonAsync(
+            HttpMethod method,
+            string relativeUrl,
+            JsonObject payload)
+        {
+            TimeSpan deferredDelay;
+
+            if (GraphThrottleState.TryGetRemainingDelay(out deferredDelay))
+            {
+                throw new GraphThrottledException(deferredDelay);
+            }
+
+            using (HttpRequestMessage request = new HttpRequestMessage(
+                method,
+                CreateRequestUri(relativeUrl)))
+            {
+                request.Content = new StringContent(
+                    payload.Stringify(),
+                    Encoding.UTF8,
+                    "application/json");
+
+                using (HttpResponseMessage response = await _httpClient.SendAsync(request))
+                {
+                    if ((int)response.StatusCode == 429)
+                    {
+                        TimeSpan retryAfter = GetRetryAfter(response.Headers);
+                        GraphThrottleState.Defer(retryAfter);
+                        throw new GraphThrottledException(retryAfter);
+                    }
+
+                    string responsePayload = await response.Content.ReadAsStringAsync();
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        throw new InvalidOperationException(
+                            "Microsoft Graph write request failed: " + responsePayload);
+                    }
+
+                    return string.IsNullOrEmpty(responsePayload)
+                        ? new JsonObject()
+                        : JsonObject.Parse(responsePayload);
+                }
+            }
+        }
+
+        private async Task SendDeleteAsync(string relativeUrl)
+        {
+            TimeSpan deferredDelay;
+
+            if (GraphThrottleState.TryGetRemainingDelay(out deferredDelay))
+            {
+                throw new GraphThrottledException(deferredDelay);
+            }
+
+            using (HttpResponseMessage response = await _httpClient.DeleteAsync(
+                CreateRequestUri(relativeUrl)))
+            {
+                if ((int)response.StatusCode == 429)
+                {
+                    TimeSpan retryAfter = GetRetryAfter(response.Headers);
+                    GraphThrottleState.Defer(retryAfter);
+                    throw new GraphThrottledException(retryAfter);
+                }
+
+                if ((int)response.StatusCode == 404)
+                {
+                    return;
+                }
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    throw new InvalidOperationException(
+                        "Microsoft Graph delete request failed: " + response.ReasonPhrase);
+                }
             }
         }
 

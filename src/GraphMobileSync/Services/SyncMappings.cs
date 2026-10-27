@@ -15,6 +15,9 @@ namespace GraphMobileSync.Services
         public IDictionary<string, string> ContactIds { get; private set; } =
             new Dictionary<string, string>();
 
+        public IDictionary<string, string> ContactFingerprints { get; private set; } =
+            new Dictionary<string, string>();
+
         public IDictionary<string, CalendarMapping> Calendars { get; private set; } =
             new Dictionary<string, CalendarMapping>();
     }
@@ -26,6 +29,9 @@ namespace GraphMobileSync.Services
         public string DisplayName { get; set; }
 
         public IDictionary<string, string> EventIds { get; private set; } =
+            new Dictionary<string, string>();
+
+        public IDictionary<string, string> EventFingerprints { get; private set; } =
             new Dictionary<string, string>();
     }
 
@@ -68,6 +74,9 @@ namespace GraphMobileSync.Services
                 };
 
                 ReadStringMap(JsonValueReader.GetObject(root, "contacts"), mappings.ContactIds);
+                ReadStringMap(
+                    JsonValueReader.GetObject(root, "contactFingerprints"),
+                    mappings.ContactFingerprints);
                 JsonObject calendars = JsonValueReader.GetObject(root, "calendars");
 
                 if (calendars != null)
@@ -86,6 +95,9 @@ namespace GraphMobileSync.Services
                             DisplayName = JsonValueReader.GetString(serializedCalendar, "displayName", string.Empty)
                         };
                         ReadStringMap(JsonValueReader.GetObject(serializedCalendar, "events"), calendar.EventIds);
+                        ReadStringMap(
+                            JsonValueReader.GetObject(serializedCalendar, "eventFingerprints"),
+                            calendar.EventFingerprints);
                         mappings.Calendars[calendarEntry.Key] = calendar;
                     }
                 }
@@ -104,6 +116,7 @@ namespace GraphMobileSync.Services
             JsonObject root = new JsonObject();
             root.SetNamedValue("contactListId", JsonValue.CreateStringValue(mappings.ContactListId ?? string.Empty));
             root.SetNamedValue("contacts", WriteStringMap(mappings.ContactIds));
+            root.SetNamedValue("contactFingerprints", WriteStringMap(mappings.ContactFingerprints));
             JsonObject calendars = new JsonObject();
 
             foreach (KeyValuePair<string, CalendarMapping> calendarEntry in mappings.Calendars)
@@ -113,6 +126,9 @@ namespace GraphMobileSync.Services
                 serializedCalendar.SetNamedValue("localId", JsonValue.CreateStringValue(calendar.LocalId ?? string.Empty));
                 serializedCalendar.SetNamedValue("displayName", JsonValue.CreateStringValue(calendar.DisplayName ?? string.Empty));
                 serializedCalendar.SetNamedValue("events", WriteStringMap(calendar.EventIds));
+                serializedCalendar.SetNamedValue(
+                    "eventFingerprints",
+                    WriteStringMap(calendar.EventFingerprints));
                 calendars.SetNamedValue(calendarEntry.Key, serializedCalendar);
             }
 

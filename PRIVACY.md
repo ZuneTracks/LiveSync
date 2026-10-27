@@ -8,7 +8,7 @@ ZuneTracks ("ZuneTracks," "we," "us," or "our") provides the LiveSync applicatio
 
 LiveSync's standard features are read-only: the app copies selected contact and calendar data from the Microsoft account that you choose to connect into LiveSync-owned contact lists and calendars on your Windows device.
 
-LiveSync Pro is an optional paid Microsoft Store add-on that enables two-way synchronization for the LiveSync-owned contact lists and calendars. When Pro two-way synchronization is enabled, changes you make to supported LiveSync-managed contacts and events on your device can be sent to Microsoft Graph, and corresponding changes made in Microsoft Graph can be applied on your device.
+LiveSync Pro is an optional paid Microsoft Store add-on. When you enable two-way synchronization, supported changes you make to LiveSync-managed contacts and events on your device can be sent to Microsoft Graph, and corresponding changes made in Microsoft Graph can be applied on your device.
 
 LiveSync does not operate a ZuneTracks server and does not send your contacts, calendar content, credentials, or payment information to ZuneTracks.
 
@@ -21,7 +21,7 @@ After you sign in and grant permission, the standard LiveSync features request t
 - `Calendars.Read`, to read your calendars and calendar events; and
 - `offline_access`, to keep a refresh token so that background synchronization can continue after you close the app.
 
-If you purchase and enable LiveSync Pro's two-way synchronization, LiveSync requests the following elevated delegated Microsoft Graph permissions instead of the corresponding read-only permissions:
+When you purchase and enable LiveSync Pro two-way synchronization, LiveSync requests the following elevated delegated Microsoft Graph permissions instead of the corresponding read-only permissions:
 
 - `Contacts.ReadWrite`, to read, create, update, and delete supported contacts in your Microsoft account; and
 - `Calendars.ReadWrite`, to read, create, update, and delete supported calendar events in your Microsoft account.
@@ -38,6 +38,10 @@ Depending on the information available in your Microsoft account and the feature
 - synchronization preferences, locally generated identifiers that associate Graph items with device items, Graph delta links, and a limited recent synchronization-status history.
 
 When LiveSync Pro two-way synchronization is enabled, LiveSync may send to Microsoft Graph the supported contact or event fields that you create or edit in LiveSync-owned People or Calendar containers. It may also send a deletion when you delete a corresponding LiveSync-managed contact or event on your device. LiveSync Pro writes only items it creates, imports, or has linked to a LiveSync mapping; it is not intended to edit unrelated Graph contacts or calendar events.
+
+The supported outbound contact fields are given name, surname, display name, email addresses, mobile phone, and work phone. The supported outbound event fields are subject, details, location, start/end times, and all-day status. Contact photos, recurrence, attendees, categories, response state, calendar creation/removal, and other fields are not uploaded by LiveSync Pro.
+
+To detect supported edits made in the built-in People and Calendar apps, LiveSync uses Windows restricted `contactsSystem` and `appointmentsSystem` capabilities. Microsoft Store approval is required before a public Store release can use those capabilities.
 
 LiveSync does not request or use permission to access email, files, messages, or device location.
 
@@ -58,13 +62,13 @@ When LiveSync Pro two-way synchronization is enabled, LiveSync additionally uses
 - identify supported changes to LiveSync-managed contacts and events made in the Windows People and Calendar apps;
 - create, update, or delete the corresponding Microsoft Graph contacts and calendar events;
 - prevent a change downloaded from Graph from being immediately uploaded again; and
-- detect and resolve synchronization conflicts according to the conflict behavior shown in the app.
+- resolve an ambiguous same-interval local and Graph edit in favor of the Microsoft Graph version.
 
 LiveSync may check Microsoft Graph for changes in the background, subject to Windows scheduling, battery, data-saver, and permission settings.
 
 ## Where information is stored
 
-LiveSync stores synchronization mappings, delta checkpoints, downloaded contact photos, preferences, and limited diagnostic history in the app's local storage on your device. When LiveSync Pro two-way synchronization is enabled, the app also stores local synchronization state needed to identify supported local changes, associate them with Graph items, avoid synchronization loops, and record conflict or write-back results. This state can include local and Graph item identifiers, timestamps or change markers, and pending-operation status.
+LiveSync stores synchronization mappings, delta checkpoints, downloaded contact photos, preferences, and limited diagnostic history in the app's local storage on your device. When LiveSync Pro two-way synchronization is enabled, the app also stores local synchronization state needed to identify supported local changes, associate them with Graph items, avoid synchronization loops, and record conflict or write-back results. This state can include local and Graph item identifiers, local content fingerprints, and synchronization status.
 
 A Microsoft Graph refresh token is stored in the Windows Credential Locker, an operating-system-managed credential store. LiveSync may cache Microsoft Store license information needed to determine whether Pro features are available; it does not store payment-card or payment-account information.
 
@@ -84,7 +88,7 @@ Information is sent to Microsoft only as necessary to use Microsoft Entra sign-i
 
 LiveSync retains app-local synchronization state for as long as it remains installed or until the operating system removes it. The app updates and deletes the local copies it manages during normal synchronization when corresponding Microsoft Graph items are changed or removed. When Pro two-way synchronization is enabled, the app uses the related local synchronization state while processing supported changes and write-backs.
 
-To stop two-way synchronization, turn off the Pro synchronization feature in the app when it is available. To stop future access to your Microsoft account, revoke LiveSync's permission in your Microsoft account or Microsoft Entra ID account's application-permissions settings. You can also uninstall LiveSync. If LiveSync-created People or Calendar entries remain visible after uninstalling, remove the entries from their LiveSync-owned list or calendar through the Windows People or Calendar app, where supported by the device.
+To stop two-way synchronization, turn off the Pro synchronization feature in the app. To stop future access to your Microsoft account, revoke LiveSync's permission in your Microsoft account or Microsoft Entra ID account's application-permissions settings. You can also uninstall LiveSync. If LiveSync-created People or Calendar entries remain visible after uninstalling, remove the entries from their LiveSync-owned list or calendar through the Windows People or Calendar app, where supported by the device.
 
 Because ZuneTracks does not maintain a server-side copy of LiveSync data, requests to access, correct, or delete app-local data generally must be completed on your device or through the Microsoft account and Windows controls that manage that data.
 
