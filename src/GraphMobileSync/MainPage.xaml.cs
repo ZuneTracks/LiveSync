@@ -581,6 +581,13 @@ namespace GraphMobileSync
                 BackgroundSyncDiagnostics.Record(
                     "Created a calendar event and uploaded it to Microsoft Graph.");
                 RefreshSyncHistory();
+                await new ContentDialog
+                {
+                    Title = "Event created",
+                    Content = "\"" + subject
+                        + "\" was created in LiveSync and synced to Microsoft Graph.",
+                    CloseButtonText = "OK"
+                }.ShowAsync();
             }
             catch (Exception exception)
             {

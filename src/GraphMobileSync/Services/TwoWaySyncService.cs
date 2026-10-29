@@ -527,12 +527,15 @@ namespace GraphMobileSync.Services
 
         private static JsonObject CreateGraphDateTime(DateTimeOffset value)
         {
+            DateTimeOffset localValue = value.ToLocalTime();
             JsonObject graphDateTime = new JsonObject();
             SetString(
                 graphDateTime,
                 "dateTime",
-                value.UtcDateTime.ToString("yyyy-MM-ddTHH:mm:ss", CultureInfo.InvariantCulture));
-            SetString(graphDateTime, "timeZone", "UTC");
+                localValue.DateTime.ToString(
+                    "yyyy-MM-ddTHH:mm:ss",
+                    CultureInfo.InvariantCulture));
+            SetString(graphDateTime, "timeZone", TimeZoneInfo.Local.Id);
             return graphDateTime;
         }
 
