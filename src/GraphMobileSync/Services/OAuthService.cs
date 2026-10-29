@@ -14,7 +14,10 @@ namespace GraphMobileSync.Services
     internal static class OAuthService
     {
         private const string RedirectUri = "https://login.microsoftonline.com/common/oauth2/nativeclient";
-        private const string Scope = "https://graph.microsoft.com/Contacts.Read offline_access User.Read Calendars.Read";
+        private const string ReadScope =
+            "https://graph.microsoft.com/Contacts.Read offline_access User.Read Calendars.Read";
+        private const string ReadWriteScope =
+            "https://graph.microsoft.com/Contacts.ReadWrite offline_access User.Read Calendars.ReadWrite";
         private const string RefreshTokenCredentialResource = "LiveSync.MicrosoftGraph";
         private const string RefreshTokenCredentialUserName = "RefreshToken";
 
@@ -33,16 +36,24 @@ namespace GraphMobileSync.Services
             }
         }
 
-        public static async Task<string> SignInAsync(string clientId, string tenant)
+        public static async Task<string> SignInAsync(
+            string clientId,
+            string tenant,
+            bool requestWriteAccess = false,
+            bool promptForAccountSelection = false)
         {
             string codeVerifier = CreateCodeVerifier();
+            string promptParameter = requestWriteAccess
+                ? "&prompt=consent"
+                : promptForAccountSelection ? "&prompt=select_account" : string.Empty;
             string authorizeUrl = string.Format(
-                "https://login.microsoftonline.com/{0}/oauth2/v2.0/authorize?client_id={1}&response_type=code&redirect_uri={2}&response_mode=query&scope={3}&code_challenge={4}&code_challenge_method=S256",
+                "https://login.microsoftonline.com/{0}/oauth2/v2.0/authorize?client_id={1}&response_type=code&redirect_uri={2}&response_mode=query&scope={3}&code_challenge={4}&code_challenge_method=S256{5}",
                 Uri.EscapeDataString(tenant),
                 Uri.EscapeDataString(clientId),
                 Uri.EscapeDataString(RedirectUri),
-                Uri.EscapeDataString(Scope),
-                Uri.EscapeDataString(CreateCodeChallenge(codeVerifier)));
+                Uri.EscapeDataString(GetScope(requestWriteAccess)),
+                Uri.EscapeDataString(CreateCodeChallenge(codeVerifier)),
+                promptParameter);
 
             WebAuthenticationResult result = await WebAuthenticationBroker.AuthenticateAsync(
                 WebAuthenticationOptions.None,
@@ -67,12 +78,17 @@ namespace GraphMobileSync.Services
                 throw new InvalidOperationException("Microsoft sign-in did not return an authorization code. " + error);
             }
 
-            GraphToken token = await ExchangeCodeAsync(clientId, tenant, authorizationCode, codeVerifier);
+            GraphToken token = await ExchangeCodeAsync(
+                clientId,
+                tenant,
+                authorizationCode,
+                codeVerifier,
+                requestWriteAccess);
             SaveRefreshToken(token.RefreshToken);
             return token.AccessToken;
         }
 
-        public static async Task<string> GetBackgroundAccessTokenAsync()
+        public static async Task<string> GetBackgroundAccessTokenAsync(bool requestWriteAccess = false)
         {
             string clientId = AppConfiguration.ClientId;
             string tenant = AppConfiguration.Tenant;
@@ -91,7 +107,7 @@ namespace GraphMobileSync.Services
                     { "client_id", clientId },
                     { "grant_type", "refresh_token" },
                     { "refresh_token", refreshToken },
-                    { "scope", Scope }
+                    { "scope", GetScope(requestWriteAccess) }
                 };
 
                 GraphToken token = await RequestTokenAsync(client, tenant, parameters);
@@ -115,7 +131,28 @@ namespace GraphMobileSync.Services
                 && TryGetRefreshTokenCredential(new PasswordVault()) != null;
         }
 
-        private static async Task<GraphToken> ExchangeCodeAsync(string clientId, string tenant, string authorizationCode, string codeVerifier)
+        public static void SignOut()
+        {
+            PasswordVault vault = new PasswordVault();
+            PasswordCredential credential = TryGetRefreshTokenCredential(vault);
+
+            if (credential != null)
+            {
+                vault.Remove(credential);
+            }
+        }
+
+        private static string GetScope(bool requestWriteAccess)
+        {
+            return requestWriteAccess ? ReadWriteScope : ReadScope;
+        }
+
+        private static async Task<GraphToken> ExchangeCodeAsync(
+            string clientId,
+            string tenant,
+            string authorizationCode,
+            string codeVerifier,
+            bool requestWriteAccess)
         {
             using (HttpClient client = new HttpClient())
             {
@@ -126,7 +163,7 @@ namespace GraphMobileSync.Services
                     { "code", authorizationCode },
                     { "redirect_uri", RedirectUri },
                     { "code_verifier", codeVerifier },
-                    { "scope", Scope }
+                    { "scope", GetScope(requestWriteAccess) }
                 };
 
                 return await RequestTokenAsync(client, tenant, parameters);

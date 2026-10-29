@@ -4,46 +4,113 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:GraphMobileSync"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
-    <ScrollViewer>
-        <StackPanel Margin="24,36,24,24">
-            <TextBlock Text="LiveSync" Style="{ThemeResource TitleTextBlockStyle}" />
-            <TextBlock Text="Imports Microsoft Graph contacts and calendar events into app-owned lists that Windows 10 Mobile exposes in People and Calendar." />
-            <TextBlock Text="Sync settings" Style="{ThemeResource SubtitleTextBlockStyle}" Margin="0,16,0,0" />
-            <ToggleSwitch x:Name="BackgroundSyncToggleSwitch" Header="Sync in the background" OnContent="On" OffContent="Off" IsOn="True" />
-            <ToggleSwitch x:Name="FailureNotificationToggleSwitch" Header="Notify me when background sync fails" OnContent="On" OffContent="Off" IsOn="False" />
-            <TextBlock x:Name="BackgroundTaskStatusTextBlock" FontSize="14" />
-            <TextBlock Text="Calendars to sync" />
-            <TextBox x:Name="CalendarNamesTextBox" PlaceholderText="All calendars (or comma-separated calendar names)" />
-            <TextBlock Text="Event window" />
-            <ComboBox x:Name="EventWindowComboBox" SelectedIndex="1">
-                <ComboBoxItem Tag="6">6 months</ComboBoxItem>
-                <ComboBoxItem Tag="12">12 months</ComboBoxItem>
-                <ComboBoxItem Tag="24">24 months</ComboBoxItem>
-            </ComboBox>
-            <Button x:Name="SignInButton" Content="Sign in / sign in again" Click="SignInButton_Click" HorizontalAlignment="Left" />
-            <Button x:Name="SyncButton" Content="Sync contacts and calendars" Click="SyncButton_Click" HorizontalAlignment="Left" IsEnabled="False" />
-            <Button x:Name="BackgroundCheckButton" Content="Check Graph changes now" Click="BackgroundCheckButton_Click" HorizontalAlignment="Left" IsEnabled="False" />
-            <ProgressBar x:Name="SyncProgressBar" IsIndeterminate="False" Maximum="1" Visibility="Collapsed" />
-            <TextBlock x:Name="SyncProgressTextBlock" Visibility="Collapsed" />
-            <TextBlock x:Name="StatusTextBlock" Text="Sign in to begin syncing your contacts and calendars." />
-            <TextBlock Text="Recent sync activity" Style="{ThemeResource SubtitleTextBlockStyle}" Margin="0,16,0,0" />
-            <TextBlock x:Name="SyncHistoryTextBlock" />
-            <Button Content="About LiveSync" HorizontalAlignment="Left" Margin="0,16,0,0">
-                <Button.Flyout>
-                    <Flyout Placement="Top">
-                        <ScrollViewer MaxHeight="400">
-                            <StackPanel Width="280" Margin="20">
-                                <TextBlock Text="About LiveSync" Style="{ThemeResource TitleTextBlockStyle}" />
-                                <TextBlock x:Name="BuildVersionTextBlock" Margin="0,12,0,0" />
-                                <TextBlock Margin="0,12,0,0" Text="LiveSync brings your Microsoft Graph contacts and calendars to the built-in People and Calendar apps on Windows 10 Mobile." />
-                                <TextBlock Margin="0,12,0,0">
-                                    <Run Text="Developed by&#160;" /><Hyperlink NavigateUri="https://github.com/ZuneTracks"><Run Text="ZuneTracks" /></Hyperlink>
-                                </TextBlock>
-                            </StackPanel>
-                        </ScrollViewer>
-                    </Flyout>
-                </Button.Flyout>
-            </Button>
-        </StackPanel>
-    </ScrollViewer>
+    <Pivot x:Name="MainPivot" SelectionChanged="MainPivot_SelectionChanged">
+        <PivotItem Header="Sync">
+            <ScrollViewer>
+                <StackPanel Margin="24,36,24,24">
+                    <TextBlock Text="LiveSync" Style="{ThemeResource TitleTextBlockStyle}" />
+                    <TextBlock Margin="0,8,0,0" Text="Sync your Microsoft Graph contacts and calendar events with Windows 10 Mobile." />
+                    <Button x:Name="SyncButton" Content="Sync now" Click="SyncButton_Click" HorizontalAlignment="Left" Margin="0,24,0,0" IsEnabled="False" />
+                    <Button x:Name="BackgroundCheckButton" Content="Check Graph changes now" Click="BackgroundCheckButton_Click" HorizontalAlignment="Left" IsEnabled="False" Margin="0,8,0,0" />
+                    <ProgressBar x:Name="SyncProgressBar" IsIndeterminate="False" Maximum="1" Visibility="Collapsed" Margin="0,16,0,0" />
+                    <TextBlock x:Name="SyncProgressTextBlock" Visibility="Collapsed" />
+                    <TextBlock x:Name="StatusTextBlock" Margin="0,12,0,0" Text="Sign in to begin syncing your contacts and calendars." />
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+        <PivotItem x:Name="CalendarPivotItem" Header="Calendar" IsEnabled="False">
+            <ScrollViewer>
+                <StackPanel Margin="24,36,24,24">
+                    <TextBlock Text="New event" Style="{ThemeResource TitleTextBlockStyle}" />
+                    <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="Create an event in a LiveSync calendar and upload it to your Microsoft account immediately." />
+                    <TextBlock x:Name="NewEventStatusTextBlock" Margin="0,12,0,0" />
+
+                    <TextBlock Text="Calendar" Margin="0,16,0,0" />
+                    <ComboBox x:Name="NewEventCalendarComboBox" PlaceholderText="Select a synced calendar" />
+
+                    <TextBlock Text="Subject" Margin="0,12,0,0" />
+                    <TextBox x:Name="NewEventSubjectTextBox" PlaceholderText="Event title" />
+
+                    <ToggleSwitch x:Name="NewEventAllDayToggleSwitch" Header="All day" OnContent="On" OffContent="Off" Toggled="NewEventAllDayToggleSwitch_Toggled" Margin="0,12,0,0" />
+
+                    <TextBlock Text="Starts" Margin="0,12,0,0" />
+                    <StackPanel>
+                        <DatePicker x:Name="NewEventStartDatePicker" />
+                        <TimePicker x:Name="NewEventStartTimePicker" Margin="0,8,0,0" />
+                    </StackPanel>
+
+                    <TextBlock Text="Ends" Margin="0,12,0,0" />
+                    <StackPanel>
+                        <DatePicker x:Name="NewEventEndDatePicker" />
+                        <TimePicker x:Name="NewEventEndTimePicker" Margin="0,8,0,0" />
+                    </StackPanel>
+
+                    <TextBlock Text="Location" Margin="0,12,0,0" />
+                    <TextBox x:Name="NewEventLocationTextBox" PlaceholderText="Optional location" />
+
+                    <TextBlock Text="Details" Margin="0,12,0,0" />
+                    <TextBox x:Name="NewEventDetailsTextBox" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="80" PlaceholderText="Optional details" />
+
+                    <Button x:Name="CreateEventButton" Content="Create event" Click="CreateEventButton_Click" HorizontalAlignment="Left" Margin="0,20,0,0" IsEnabled="False" />
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+        <PivotItem x:Name="ActivityPivotItem" Header="Activity">
+            <ScrollViewer>
+                <StackPanel Margin="24,36,24,24">
+                    <TextBlock Text="Sync activity" Style="{ThemeResource TitleTextBlockStyle}" />
+                    <TextBlock Margin="0,8,0,0" Text="Recent manual and background synchronization results." />
+                    <TextBlock x:Name="SyncHistoryTextBlock" Margin="0,16,0,0" />
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+        <PivotItem Header="Settings">
+            <ScrollViewer>
+                <StackPanel Margin="24,36,24,24">
+                    <TextBlock Text="Account" Style="{ThemeResource SubtitleTextBlockStyle}" />
+                    <TextBlock x:Name="AccountStatusTextBlock" Text="Checking your Microsoft account..." />
+                    <Button x:Name="SignInButton" Content="Sign in / sign in again" Click="SignInButton_Click" HorizontalAlignment="Left" />
+                    <Button x:Name="SignOutButton" Content="Sign out" Click="SignOutButton_Click" HorizontalAlignment="Left" Margin="0,8,0,0" IsEnabled="False" />
+
+                    <TextBlock Text="LiveSync Pro" Style="{ThemeResource SubtitleTextBlockStyle}" Margin="0,24,0,0" />
+                    <TextBlock x:Name="ProStatusTextBlock" Text="Checking your LiveSync Pro subscription..." />
+                    <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="LiveSync Pro enables two-way sync between your Windows 10 Mobile device and Microsoft account. Subscription renews automatically every year." />
+                    <TextBlock Margin="0,8,0,0" TextWrapping="Wrap" Text="LiveSync Pro also unlocks the Calendar pivot for creating and immediately syncing events." />
+                    <Button x:Name="ProUpgradeButton" Content="Upgrade to LiveSync Pro" Click="ProUpgradeButton_Click" HorizontalAlignment="Left" Margin="0,12,0,0" />
+                    <Button x:Name="ProRefreshButton" Content="Refresh subscription" Click="ProRefreshButton_Click" HorizontalAlignment="Left" Margin="0,8,0,0" />
+                    <ToggleSwitch x:Name="TwoWaySyncToggleSwitch" Header="Sync edits back to Microsoft Graph" OnContent="On" OffContent="Off" Toggled="TwoWaySyncToggleSwitch_Toggled" IsEnabled="False" />
+
+                    <TextBlock Text="Sync settings" Style="{ThemeResource SubtitleTextBlockStyle}" Margin="0,24,0,0" />
+                    <ToggleSwitch x:Name="BackgroundSyncToggleSwitch" Header="Sync in the background" OnContent="On" OffContent="Off" IsOn="True" />
+                    <ToggleSwitch x:Name="FailureNotificationToggleSwitch" Header="Notify me when background sync fails" OnContent="On" OffContent="Off" IsOn="False" />
+                    <TextBlock x:Name="BackgroundTaskStatusTextBlock" FontSize="14" />
+                    <TextBlock Text="Calendars to sync" Margin="0,12,0,0" />
+                    <TextBox x:Name="CalendarNamesTextBox" PlaceholderText="All calendars (or comma-separated calendar names)" />
+                    <TextBlock Text="Event window" />
+                    <ComboBox x:Name="EventWindowComboBox" SelectedIndex="1">
+                        <ComboBoxItem Tag="6">6 months</ComboBoxItem>
+                        <ComboBoxItem Tag="12">12 months</ComboBoxItem>
+                        <ComboBoxItem Tag="24">24 months</ComboBoxItem>
+                    </ComboBox>
+
+                    <Button Content="About LiveSync" HorizontalAlignment="Left" Margin="0,24,0,0">
+                        <Button.Flyout>
+                            <Flyout Placement="Top">
+                                <ScrollViewer MaxHeight="400">
+                                    <StackPanel Width="280" Margin="20">
+                                        <TextBlock Text="About LiveSync" Style="{ThemeResource TitleTextBlockStyle}" />
+                                        <TextBlock x:Name="BuildVersionTextBlock" Margin="0,12,0,0" />
+                                        <TextBlock Margin="0,12,0,0" Text="LiveSync brings your Microsoft Graph contacts and calendars to the built-in People and Calendar apps on Windows 10 Mobile." />
+                                        <TextBlock Margin="0,12,0,0">
+                                            <Run Text="Developed by&#160;" /><Hyperlink NavigateUri="https://github.com/ZuneTracks"><Run Text="ZuneTracks" /></Hyperlink>
+                                        </TextBlock>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </Flyout>
+                        </Button.Flyout>
+                    </Button>
+                </StackPanel>
+            </ScrollViewer>
+        </PivotItem>
+    </Pivot>
 </Page>

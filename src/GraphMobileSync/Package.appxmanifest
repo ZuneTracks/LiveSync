@@ -3,8 +3,9 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
-  IgnorableNamespaces="uap mp">
-  <Identity Name="ZuneTracks.LiveSync" Publisher="CN=3ED86B18-5F5F-4AE0-AA9C-697B841F55A7" Version="1.2.3.0" />
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap mp rescap">
+  <Identity Name="ZuneTracks.LiveSync" Publisher="CN=3ED86B18-5F5F-4AE0-AA9C-697B841F55A7" Version="1.10.3.0" />
   <mp:PhoneIdentity PhoneProductId="b7644412-40d8-4bb2-bd5a-cc088243517d" PhonePublisherId="A0B7114E-EE9C-49D9-98CC-9B2469119F9D" />
   <Properties>
     <DisplayName>LiveSync</DisplayName>
@@ -34,5 +35,7 @@
     <Capability Name="internetClient" />
     <uap:Capability Name="contacts" />
     <uap:Capability Name="appointments" />
+    <rescap:Capability Name="contactsSystem" />
+    <rescap:Capability Name="appointmentsSystem" />
   </Capabilities>
 </Package>
