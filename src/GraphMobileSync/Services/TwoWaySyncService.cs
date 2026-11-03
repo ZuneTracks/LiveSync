@@ -44,16 +44,16 @@ namespace GraphMobileSync.Services
             await SyncMappingsStore.SaveAsync(mappings);
         }
 
+        // The caller loads and saves the mappings so a delta run touches the mappings file only once.
         public async Task<TwoWaySyncResult> PushLocalChangesAsync(
+            SyncMappings mappings,
             ISet<string> graphChangedContactIds,
             IDictionary<string, ISet<string>> graphChangedEventIds)
         {
-            SyncMappings mappings = await SyncMappingsStore.LoadAsync();
             TwoWaySyncResult result = new TwoWaySyncResult();
 
             await PushContactChangesAsync(mappings, graphChangedContactIds, result);
             await PushAppointmentChangesAsync(mappings, graphChangedEventIds, result);
-            await SyncMappingsStore.SaveAsync(mappings);
             return result;
         }
 
@@ -127,8 +127,7 @@ namespace GraphMobileSync.Services
 
                 if (contact == null)
                 {
-                    mappings.ContactIds.Remove(mapping.Key);
-                    mappings.ContactFingerprints.Remove(mapping.Key);
+                    mappings.RemoveContact(mapping.Key);
                     continue;
                 }
 
@@ -225,6 +224,7 @@ namespace GraphMobileSync.Services
 
             ContactChangeTracker tracker = contactList.ChangeTracker;
             ContactChangeReader reader = tracker.GetChangeReader();
+            Dictionary<string, string> graphIdsByLocalId = CreateReverseLookup(mappings.ContactIds);
 
             while (true)
             {
@@ -253,7 +253,7 @@ namespace GraphMobileSync.Services
                             "LiveSync could not identify a changed local contact.");
                     }
 
-                    string graphContactId = FindGraphId(mappings.ContactIds, contact.Id);
+                    string graphContactId = FindGraphId(graphIdsByLocalId, contact.Id);
 
                     if (!string.IsNullOrEmpty(graphContactId)
                         && graphChangedContactIds.Contains(graphContactId))
@@ -267,8 +267,8 @@ namespace GraphMobileSync.Services
                         if (!string.IsNullOrEmpty(graphContactId))
                         {
                             await _graphClient.DeleteContactAsync(graphContactId);
-                            mappings.ContactIds.Remove(graphContactId);
-                            mappings.ContactFingerprints.Remove(graphContactId);
+                            mappings.RemoveContact(graphContactId);
+                            graphIdsByLocalId.Remove(contact.Id);
                             result.ContactsWritten++;
                         }
 
@@ -301,12 +301,16 @@ namespace GraphMobileSync.Services
                         }
 
                         mappings.ContactIds[graphContactId] = contact.Id;
+                        graphIdsByLocalId[contact.Id] = graphContactId;
                     }
                     else
                     {
                         await _graphClient.UpdateContactAsync(graphContactId, graphContact);
                     }
 
+                    // The upload gives the Graph contact a new changeKey; forget the old one so the
+                    // next inbound sync re-evaluates this contact.
+                    mappings.ContactChangeKeys.Remove(graphContactId);
                     mappings.ContactFingerprints[graphContactId] = fingerprint;
                     result.ContactsWritten++;
                 }
@@ -336,6 +340,18 @@ namespace GraphMobileSync.Services
 
             AppointmentStoreChangeTracker tracker = appointmentStore.ChangeTracker;
             AppointmentStoreChangeReader reader = tracker.GetChangeReader();
+            Dictionary<string, string> graphCalendarIdsByLocalId = new Dictionary<string, string>();
+            Dictionary<string, Dictionary<string, string>> graphEventIdsByCalendar =
+                new Dictionary<string, Dictionary<string, string>>();
+
+            foreach (KeyValuePair<string, CalendarMapping> entry in mappings.Calendars)
+            {
+                if (!string.IsNullOrEmpty(entry.Value.LocalId)
+                    && !graphCalendarIdsByLocalId.ContainsKey(entry.Value.LocalId))
+                {
+                    graphCalendarIdsByLocalId[entry.Value.LocalId] = entry.Key;
+                }
+            }
 
             while (true)
             {
@@ -377,17 +393,24 @@ namespace GraphMobileSync.Services
                         continue;
                     }
 
-                    KeyValuePair<string, CalendarMapping> calendarEntry = mappings.Calendars
-                        .FirstOrDefault(entry => entry.Value.LocalId == localCalendar.LocalId);
+                    string graphCalendarId;
 
-                    if (string.IsNullOrEmpty(calendarEntry.Key))
+                    if (string.IsNullOrEmpty(localCalendar.LocalId)
+                        || !graphCalendarIdsByLocalId.TryGetValue(localCalendar.LocalId, out graphCalendarId))
                     {
                         continue;
                     }
 
-                    string graphCalendarId = calendarEntry.Key;
-                    CalendarMapping calendarMapping = calendarEntry.Value;
-                    string graphEventId = FindGraphId(calendarMapping.EventIds, appointment.LocalId);
+                    CalendarMapping calendarMapping = mappings.Calendars[graphCalendarId];
+                    Dictionary<string, string> graphEventIdsByLocalId;
+
+                    if (!graphEventIdsByCalendar.TryGetValue(graphCalendarId, out graphEventIdsByLocalId))
+                    {
+                        graphEventIdsByLocalId = CreateReverseLookup(calendarMapping.EventIds);
+                        graphEventIdsByCalendar[graphCalendarId] = graphEventIdsByLocalId;
+                    }
+
+                    string graphEventId = FindGraphId(graphEventIdsByLocalId, appointment.LocalId);
                     ISet<string> changedEvents;
 
                     if (!string.IsNullOrEmpty(graphEventId)
@@ -405,6 +428,7 @@ namespace GraphMobileSync.Services
                             await _graphClient.DeleteEventAsync(graphCalendarId, graphEventId);
                             calendarMapping.EventIds.Remove(graphEventId);
                             calendarMapping.EventFingerprints.Remove(graphEventId);
+                            graphEventIdsByLocalId.Remove(appointment.LocalId);
                             result.EventsWritten++;
                         }
 
@@ -439,6 +463,7 @@ namespace GraphMobileSync.Services
                         }
 
                         calendarMapping.EventIds[graphEventId] = appointment.LocalId;
+                        graphEventIdsByLocalId[appointment.LocalId] = graphEventId;
                     }
                     else
                     {
@@ -456,13 +481,27 @@ namespace GraphMobileSync.Services
             }
         }
 
+        private static Dictionary<string, string> CreateReverseLookup(IDictionary<string, string> mappings)
+        {
+            Dictionary<string, string> graphIdsByLocalId = new Dictionary<string, string>();
+
+            foreach (KeyValuePair<string, string> mapping in mappings)
+            {
+                if (!string.IsNullOrEmpty(mapping.Value) && !graphIdsByLocalId.ContainsKey(mapping.Value))
+                {
+                    graphIdsByLocalId[mapping.Value] = mapping.Key;
+                }
+            }
+
+            return graphIdsByLocalId;
+        }
+
         private static string FindGraphId(
-            IDictionary<string, string> mappings,
+            IDictionary<string, string> graphIdsByLocalId,
             string localId)
         {
-            KeyValuePair<string, string> mapping = mappings.FirstOrDefault(
-                entry => entry.Value == localId);
-            return mapping.Key ?? string.Empty;
+            string graphId;
+            return graphIdsByLocalId.TryGetValue(localId, out graphId) ? graphId : string.Empty;
         }
 
         private static JsonObject CreateGraphContact(Contact contact)

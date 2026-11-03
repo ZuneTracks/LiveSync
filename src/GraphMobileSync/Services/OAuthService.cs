@@ -13,6 +13,7 @@ namespace GraphMobileSync.Services
 {
     internal static class OAuthService
     {
+        private static readonly HttpClient TokenHttpClient = new HttpClient();
         private const string RedirectUri = "https://login.microsoftonline.com/common/oauth2/nativeclient";
         private const string ReadScope =
             "https://graph.microsoft.com/Contacts.Read offline_access User.Read Calendars.Read";
@@ -100,25 +101,22 @@ namespace GraphMobileSync.Services
                 throw new InvalidOperationException("No refresh token is available. Open LiveSync and sign in again.");
             }
 
-            using (HttpClient client = new HttpClient())
+            Dictionary<string, string> parameters = new Dictionary<string, string>
             {
-                Dictionary<string, string> parameters = new Dictionary<string, string>
-                {
-                    { "client_id", clientId },
-                    { "grant_type", "refresh_token" },
-                    { "refresh_token", refreshToken },
-                    { "scope", GetScope(requestWriteAccess) }
-                };
+                { "client_id", clientId },
+                { "grant_type", "refresh_token" },
+                { "refresh_token", refreshToken },
+                { "scope", GetScope(requestWriteAccess) }
+            };
 
-                GraphToken token = await RequestTokenAsync(client, tenant, parameters);
+            GraphToken token = await RequestTokenAsync(tenant, parameters);
 
-                if (!string.IsNullOrEmpty(token.RefreshToken))
-                {
-                    SaveRefreshToken(token.RefreshToken);
-                }
-
-                return token.AccessToken;
+            if (!string.IsNullOrEmpty(token.RefreshToken))
+            {
+                SaveRefreshToken(token.RefreshToken);
             }
+
+            return token.AccessToken;
         }
 
         public static bool HasSavedSession()
@@ -154,33 +152,36 @@ namespace GraphMobileSync.Services
             string codeVerifier,
             bool requestWriteAccess)
         {
-            using (HttpClient client = new HttpClient())
+            Dictionary<string, string> parameters = new Dictionary<string, string>
             {
-                Dictionary<string, string> parameters = new Dictionary<string, string>
-                {
-                    { "client_id", clientId },
-                    { "grant_type", "authorization_code" },
-                    { "code", authorizationCode },
-                    { "redirect_uri", RedirectUri },
-                    { "code_verifier", codeVerifier },
-                    { "scope", GetScope(requestWriteAccess) }
-                };
+                { "client_id", clientId },
+                { "grant_type", "authorization_code" },
+                { "code", authorizationCode },
+                { "redirect_uri", RedirectUri },
+                { "code_verifier", codeVerifier },
+                { "scope", GetScope(requestWriteAccess) }
+            };
 
-                return await RequestTokenAsync(client, tenant, parameters);
-            }
+            return await RequestTokenAsync(tenant, parameters);
         }
 
         private static async Task<GraphToken> RequestTokenAsync(
-            HttpClient client,
             string tenant,
             Dictionary<string, string> parameters)
         {
-            HttpResponseMessage response = await client.PostAsync(
-                new Uri("https://login.microsoftonline.com/" + Uri.EscapeDataString(tenant) + "/oauth2/v2.0/token"),
-                new FormUrlEncodedContent(parameters));
-            string payload = await response.Content.ReadAsStringAsync();
+            string payload;
+            bool succeeded;
 
-            if (!response.IsSuccessStatusCode)
+            using (FormUrlEncodedContent content = new FormUrlEncodedContent(parameters))
+            using (HttpResponseMessage response = await TokenHttpClient.PostAsync(
+                new Uri("https://login.microsoftonline.com/" + Uri.EscapeDataString(tenant) + "/oauth2/v2.0/token"),
+                content))
+            {
+                payload = await response.Content.ReadAsStringAsync();
+                succeeded = response.IsSuccessStatusCode;
+            }
+
+            if (!succeeded)
             {
                 throw new InvalidOperationException("Token request failed: " + payload);
             }

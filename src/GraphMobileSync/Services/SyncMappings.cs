@@ -18,8 +18,22 @@ namespace GraphMobileSync.Services
         public IDictionary<string, string> ContactFingerprints { get; private set; } =
             new Dictionary<string, string>();
 
+        // Graph contact changeKey values from the last successful download. An unchanged key means
+        // the contact, including its photo, has not changed in Microsoft Graph since then.
+        public IDictionary<string, string> ContactChangeKeys { get; private set; } =
+            new Dictionary<string, string>();
+
         public IDictionary<string, CalendarMapping> Calendars { get; private set; } =
             new Dictionary<string, CalendarMapping>();
+
+        internal string PersistedJson { get; set; }
+
+        public void RemoveContact(string graphContactId)
+        {
+            ContactIds.Remove(graphContactId);
+            ContactFingerprints.Remove(graphContactId);
+            ContactChangeKeys.Remove(graphContactId);
+        }
     }
 
     internal sealed class CalendarMapping
@@ -58,7 +72,14 @@ namespace GraphMobileSync.Services
 
         public static async Task<SyncMappings> LoadAsync()
         {
-            string serializedMappings = await ReadMappingsAsync();
+            string serializedMappings = await ReadMappingsFileAsync();
+            bool loadedFromFile = serializedMappings != null;
+
+            if (!loadedFromFile)
+            {
+                serializedMappings =
+                    ApplicationData.Current.LocalSettings.Values[LegacyMappingsKey] as string;
+            }
 
             if (string.IsNullOrEmpty(serializedMappings))
             {
@@ -77,6 +98,9 @@ namespace GraphMobileSync.Services
                 ReadStringMap(
                     JsonValueReader.GetObject(root, "contactFingerprints"),
                     mappings.ContactFingerprints);
+                ReadStringMap(
+                    JsonValueReader.GetObject(root, "contactChangeKeys"),
+                    mappings.ContactChangeKeys);
                 JsonObject calendars = JsonValueReader.GetObject(root, "calendars");
 
                 if (calendars != null)
@@ -102,6 +126,11 @@ namespace GraphMobileSync.Services
                     }
                 }
 
+                if (loadedFromFile)
+                {
+                    mappings.PersistedJson = serializedMappings;
+                }
+
                 return mappings;
             }
             catch (Exception exception)
@@ -117,6 +146,7 @@ namespace GraphMobileSync.Services
             root.SetNamedValue("contactListId", JsonValue.CreateStringValue(mappings.ContactListId ?? string.Empty));
             root.SetNamedValue("contacts", WriteStringMap(mappings.ContactIds));
             root.SetNamedValue("contactFingerprints", WriteStringMap(mappings.ContactFingerprints));
+            root.SetNamedValue("contactChangeKeys", WriteStringMap(mappings.ContactChangeKeys));
             JsonObject calendars = new JsonObject();
 
             foreach (KeyValuePair<string, CalendarMapping> calendarEntry in mappings.Calendars)
@@ -133,10 +163,19 @@ namespace GraphMobileSync.Services
             }
 
             root.SetNamedValue("calendars", calendars);
+            string serializedMappings = root.Stringify();
+
+            // Most background checks change nothing, so skip rewriting an identical file.
+            if (serializedMappings == mappings.PersistedJson)
+            {
+                return;
+            }
+
             StorageFile mappingsFile = await ApplicationData.Current.LocalFolder.CreateFileAsync(
                 MappingsFileName,
                 CreationCollisionOption.ReplaceExisting);
-            await FileIO.WriteTextAsync(mappingsFile, root.Stringify());
+            await FileIO.WriteTextAsync(mappingsFile, serializedMappings);
+            mappings.PersistedJson = serializedMappings;
             ApplicationData.Current.LocalSettings.Values.Remove(LegacyMappingsKey);
         }
 
@@ -160,7 +199,7 @@ namespace GraphMobileSync.Services
                 DateTimeOffset.UtcNow.UtcDateTime.ToString("o", CultureInfo.InvariantCulture);
         }
 
-        private static async Task<string> ReadMappingsAsync()
+        private static async Task<string> ReadMappingsFileAsync()
         {
             try
             {
@@ -169,7 +208,7 @@ namespace GraphMobileSync.Services
             }
             catch (FileNotFoundException)
             {
-                return ApplicationData.Current.LocalSettings.Values[LegacyMappingsKey] as string;
+                return null;
             }
         }
 

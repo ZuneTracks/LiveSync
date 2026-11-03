@@ -26,7 +26,7 @@ namespace GraphMobileSync.Services
         private const string LegacyCalendarDeltaLinksKey = "CalendarDeltaLinks";
         private const string CheckpointFileName = "GraphDeltaCheckpoint.json";
         private const string ContactDeltaPath =
-            "/v1.0/me/contacts/delta?$select=id,givenName,surname,displayName,emailAddresses,mobilePhone,businessPhones";
+            "/v1.0/me/contacts/delta?$select=id,changeKey,givenName,surname,displayName,emailAddresses,mobilePhone,businessPhones";
 
         public static async Task CreateAsync(GraphClient graphClient)
         {

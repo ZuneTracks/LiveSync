@@ -13,6 +13,10 @@ namespace GraphMobileSync.Services
         private const string CalendarNamesKey = "SelectedCalendarNames";
         private const string EventWindowKey = "EventWindowMonths";
 
+        private HashSet<string> _selectedCalendarNames;
+
+        private string _selectedCalendarNamesSource;
+
         public bool BackgroundSyncEnabled { get; set; }
 
         public bool FailureNotificationsEnabled { get; set; }
@@ -48,13 +52,20 @@ namespace GraphMobileSync.Services
 
         public bool IncludesCalendar(string calendarName)
         {
-            ISet<string> selectedNames = new HashSet<string>(
-                (CalendarNames ?? string.Empty)
-                    .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(name => name.Trim()),
-                StringComparer.OrdinalIgnoreCase);
+            string calendarNames = CalendarNames ?? string.Empty;
 
-            return selectedNames.Count == 0 || selectedNames.Contains(calendarName);
+            if (_selectedCalendarNames == null
+                || !string.Equals(_selectedCalendarNamesSource, calendarNames, StringComparison.Ordinal))
+            {
+                _selectedCalendarNames = new HashSet<string>(
+                    calendarNames
+                        .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                        .Select(name => name.Trim()),
+                    StringComparer.OrdinalIgnoreCase);
+                _selectedCalendarNamesSource = calendarNames;
+            }
+
+            return _selectedCalendarNames.Count == 0 || _selectedCalendarNames.Contains(calendarName);
         }
 
         public DateTimeOffset GetStartDate()

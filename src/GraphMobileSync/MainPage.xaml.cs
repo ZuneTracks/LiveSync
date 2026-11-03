@@ -18,6 +18,8 @@ namespace GraphMobileSync
         private bool _loadingSettings;
         private bool _loadingCalendarForm;
         private readonly DispatcherTimer _activityRefreshTimer;
+        private SyncSettings _syncSettings = SyncSettings.Load();
+        private string _renderedSyncHistory;
 
         public MainPage()
         {
@@ -138,7 +140,7 @@ namespace GraphMobileSync
                     ? "Signed in with your saved session. Two-way sync is ready."
                     : "Signed in with your saved session. You can sync contacts and calendars.";
 
-                if (SyncSettings.Load().BackgroundSyncEnabled)
+                if (_syncSettings.BackgroundSyncEnabled)
                 {
                     await BackgroundSyncRegistration.RegisterAsync();
                     RefreshBackgroundTaskStatus();
@@ -218,13 +220,15 @@ namespace GraphMobileSync
                 }
 
                 string summaryText = string.Format(
-                    "Sync complete: {0} contacts ({1} photos downloaded, {2} saved to the People app; {3} contacts have no Graph photo), {4} events added to {5} calendars, {6} duplicate contacts removed, and {7} duplicate LiveSync lists cleared.",
+                    "Sync complete: {0} contacts ({1} unchanged; {2} photos downloaded, {3} reused from cache; {4} contacts have no Graph photo), {5} events in {6} calendars ({7} unchanged), {8} duplicate contacts removed, and {9} duplicate LiveSync lists cleared.",
                     summary.Contacts,
+                    summary.ContactsUnchanged,
                     summary.ContactPhotosDownloaded,
-                    summary.ContactPhotosStored,
+                    summary.ContactPhotosReused,
                     summary.ContactsWithoutPhotos,
                     summary.Events,
                     summary.Calendars,
+                    summary.EventsUnchanged,
                     summary.DuplicateContactsRemoved,
                     duplicateContactListCount);
                 BackgroundSyncDiagnostics.Record(syncSettings.BackgroundSyncEnabled
@@ -401,7 +405,7 @@ namespace GraphMobileSync
 
         private async Task RestoreAccessTokenAsync()
         {
-            SyncSettings settings = SyncSettings.Load();
+            SyncSettings settings = _syncSettings;
 
             if (!settings.TwoWaySyncEnabled)
             {
@@ -470,7 +474,7 @@ namespace GraphMobileSync
 
             try
             {
-                SyncSettings settings = SyncSettings.Load();
+                SyncSettings settings = _syncSettings;
 
                 if (!settings.TwoWaySyncEnabled || !_hasWriteAccess)
                 {
@@ -635,7 +639,7 @@ namespace GraphMobileSync
             bool hasCalendars = NewEventCalendarComboBox.Items.Count > 0;
             bool canCreate = hasCalendars
                 && _isProActive
-                && SyncSettings.Load().TwoWaySyncEnabled
+                && _syncSettings.TwoWaySyncEnabled
                 && _hasWriteAccess;
             CreateEventButton.IsEnabled = canCreate;
 
@@ -725,7 +729,7 @@ namespace GraphMobileSync
             CreateEventButton.IsEnabled = !isBusy
                 && _isProActive
                 && NewEventCalendarComboBox.Items.Count > 0
-                && SyncSettings.Load().TwoWaySyncEnabled
+                && _syncSettings.TwoWaySyncEnabled
                 && _hasWriteAccess;
 
             if (!string.IsNullOrEmpty(status))
@@ -799,7 +803,8 @@ namespace GraphMobileSync
 
         private void LoadSyncSettings()
         {
-            SyncSettings syncSettings = SyncSettings.Load();
+            _syncSettings = SyncSettings.Load();
+            SyncSettings syncSettings = _syncSettings;
             _loadingSettings = true;
 
             try
@@ -842,6 +847,7 @@ namespace GraphMobileSync
                 EventWindowMonths = eventWindowMonths
             };
             syncSettings.Save();
+            _syncSettings = syncSettings;
             return syncSettings;
         }
 
@@ -887,7 +893,18 @@ namespace GraphMobileSync
 
         private void RefreshSyncHistory()
         {
-            SyncHistoryTextBlock.Text = string.Join(Environment.NewLine, BackgroundSyncDiagnostics.GetHistory());
+            // The Activity timer polls every few seconds; only rebuild the text when the log changed.
+            string serializedHistory = BackgroundSyncDiagnostics.GetSerializedHistory();
+
+            if (string.Equals(serializedHistory, _renderedSyncHistory, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            SyncHistoryTextBlock.Text = string.Join(
+                Environment.NewLine,
+                BackgroundSyncDiagnostics.ParseHistory(serializedHistory));
+            _renderedSyncHistory = serializedHistory;
         }
 
         private void MainPivot_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -915,7 +932,7 @@ namespace GraphMobileSync
 
         private void RefreshBackgroundTaskStatus()
         {
-            SyncSettings syncSettings = SyncSettings.Load();
+            SyncSettings syncSettings = _syncSettings;
 
             if (!syncSettings.BackgroundSyncEnabled)
             {
