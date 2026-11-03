@@ -37,8 +37,16 @@ namespace GraphMobileSync.Services
 
         public static IReadOnlyList<string> GetHistory()
         {
-            string serializedHistory = ApplicationData.Current.LocalSettings.Values[HistoryKey] as string;
+            return ParseHistory(GetSerializedHistory());
+        }
 
+        public static string GetSerializedHistory()
+        {
+            return ApplicationData.Current.LocalSettings.Values[HistoryKey] as string ?? string.Empty;
+        }
+
+        public static IReadOnlyList<string> ParseHistory(string serializedHistory)
+        {
             if (string.IsNullOrEmpty(serializedHistory))
             {
                 return new List<string>();

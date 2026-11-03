@@ -86,6 +86,9 @@
     <Compile Include="Services\GraphClient.cs" />
     <Compile Include="Services\GraphThrottleState.cs" />
     <Compile Include="Services\GraphSyncService.cs" />
+    <Compile Include="Services\GraphSyncService.Calendars.cs" />
+    <Compile Include="Services\GraphSyncService.Cleanup.cs" />
+    <Compile Include="Services\GraphSyncService.Contacts.cs" />
     <Compile Include="Services\JsonValueReader.cs" />
     <Compile Include="Services\LiveSyncProService.cs" />
     <Compile Include="Services\OAuthService.cs" />

@@ -30,8 +30,12 @@ namespace GraphMobileSync.Services
 
         public async Task<DeltaSyncResult> PollAndApplyAsync(
             bool ignoreBackgroundSetting = false,
-            bool outboundWritesAvailable = true)
+            bool outboundWritesAvailable = true,
+            LiveSyncProEntitlement verifiedEntitlement = null)
         {
+            SyncMappings mappings = null;
+            bool mappingsSaved = false;
+
             try
             {
                 SyncSettings settings = SyncSettings.Load();
@@ -120,24 +124,29 @@ namespace GraphMobileSync.Services
 
                 if (settings.TwoWaySyncEnabled && outboundWritesAvailable)
                 {
-                    LiveSyncProEntitlement entitlement = null;
+                    LiveSyncProEntitlement entitlement = verifiedEntitlement;
 
-                    try
+                    if (entitlement == null)
                     {
-                        entitlement = await LiveSyncProService.GetEntitlementAsync();
-                    }
-                    catch (Exception exception)
-                    {
-                        twoWayStatus =
-                            "LiveSync Pro status could not be verified; local edits were not uploaded: "
-                            + exception.Message;
-                        BackgroundSyncDiagnostics.Record(twoWayStatus);
+                        try
+                        {
+                            entitlement = await LiveSyncProService.GetEntitlementAsync();
+                        }
+                        catch (Exception exception)
+                        {
+                            twoWayStatus =
+                                "LiveSync Pro status could not be verified; local edits were not uploaded: "
+                                + exception.Message;
+                            BackgroundSyncDiagnostics.Record(twoWayStatus);
+                        }
                     }
 
                     if (entitlement != null && entitlement.IsActive)
                     {
+                        mappings = await SyncMappingsStore.LoadAsync();
                         twoWayResult = await new TwoWaySyncService(_graphClient)
                             .PushLocalChangesAsync(
+                                mappings,
                                 GetChangedIds(contactDelta.Items),
                                 GetChangedEventIds(calendarChanges));
                     }
@@ -157,16 +166,30 @@ namespace GraphMobileSync.Services
 
                 if (graphChangesDetected || pruneMappings)
                 {
+                    if (mappings == null)
+                    {
+                        mappings = await SyncMappingsStore.LoadAsync();
+                    }
+
                     deltaSummary = await new GraphSyncService(_graphClient).ApplyDeltaAsync(
                         contactChanges: contactDelta.Items,
                         calendarChanges: calendarChanges,
                         activeCalendarIds: currentCalendarIds,
-                        settings: settings);
+                        settings: settings,
+                        mappings: mappings);
 
                     // Background runs detect duplicate app-owned contact lists too. Discarding the plan
                     // left their contacts in the People app until the user ran a manual sync.
                     await GraphSyncService.CleanupDuplicateContactListsAsync(
                         deltaSummary.CleanupPlan.ContactListIds);
+                }
+
+                // Mappings must be persisted before the checkpoint advances; otherwise a failed save
+                // would leave applied items unmapped and the next delta would sweep them as orphans.
+                if (mappings != null)
+                {
+                    await SyncMappingsStore.SaveAsync(mappings);
+                    mappingsSaved = true;
                 }
 
                 await DeltaCheckpointService.SaveAsync(
@@ -231,6 +254,24 @@ namespace GraphMobileSync.Services
             catch (GraphThrottledException exception)
             {
                 return new DeltaSyncResult(false, exception.Message);
+            }
+            finally
+            {
+                // Local and Microsoft Graph writes made before a failure are already permanent, so the
+                // mappings that describe them must be saved even when the run does not complete.
+                if (mappings != null && !mappingsSaved)
+                {
+                    try
+                    {
+                        await SyncMappingsStore.SaveAsync(mappings);
+                    }
+                    catch (Exception exception)
+                    {
+                        BackgroundSyncDiagnostics.Record(
+                            "Synchronization mappings could not be saved after a failed run: "
+                            + exception.Message);
+                    }
+                }
             }
         }
 

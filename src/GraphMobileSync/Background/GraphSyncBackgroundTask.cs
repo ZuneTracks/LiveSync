@@ -13,6 +13,7 @@ namespace GraphMobileSync.Background
                 BackgroundSyncDiagnostics.Record("Checking Microsoft Graph for changes...");
                 SyncSettings settings = SyncSettings.Load();
                 bool outboundWritesAvailable = false;
+                LiveSyncProEntitlement activeEntitlement = null;
                 string accessToken;
 
                 if (settings.TwoWaySyncEnabled)
@@ -27,6 +28,7 @@ namespace GraphMobileSync.Background
                             accessToken = await OAuthService.GetBackgroundAccessTokenAsync(
                                 requestWriteAccess: true);
                             outboundWritesAvailable = true;
+                            activeEntitlement = entitlement;
                         }
                         else
                         {
@@ -53,7 +55,8 @@ namespace GraphMobileSync.Background
                 using (GraphClient graphClient = new GraphClient(accessToken))
                 {
                     result = await new DeltaSyncService(graphClient).PollAndApplyAsync(
-                        outboundWritesAvailable: outboundWritesAvailable);
+                        outboundWritesAvailable: outboundWritesAvailable,
+                        verifiedEntitlement: activeEntitlement);
                 }
 
                 BackgroundSyncDiagnostics.Record(result.Message);
