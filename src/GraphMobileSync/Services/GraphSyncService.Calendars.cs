@@ -445,8 +445,25 @@ namespace GraphMobileSync.Services
 
             DateTimeOffset startTime;
             DateTimeOffset endTime;
+            bool isAllDay = JsonValueReader.GetBoolean(graphEvent, "isAllDay", false);
 
-            if (!DateTimeOffset.TryParse(
+            if (isAllDay)
+            {
+                // Graph returns all-day events as floating midnight dates labelled with the Prefer time
+                // zone (UTC), so converting them would shift the event onto the previous local day.
+                DateTime startDate;
+                DateTime endDate;
+
+                if (!TryParseGraphDate(JsonValueReader.GetString(start, "dateTime", string.Empty), out startDate)
+                    || !TryParseGraphDate(JsonValueReader.GetString(end, "dateTime", string.Empty), out endDate))
+                {
+                    return null;
+                }
+
+                startTime = new DateTimeOffset(startDate, TimeZoneInfo.Local.GetUtcOffset(startDate));
+                endTime = startTime.AddDays(Math.Max(1, (endDate - startDate).Days));
+            }
+            else if (!DateTimeOffset.TryParse(
                     JsonValueReader.GetString(start, "dateTime", string.Empty),
                     CultureInfo.InvariantCulture,
                     DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
@@ -459,9 +476,12 @@ namespace GraphMobileSync.Services
             {
                 return null;
             }
+            else
+            {
+                startTime = startTime.ToLocalTime();
+                endTime = endTime.ToLocalTime();
+            }
 
-            startTime = startTime.ToLocalTime();
-            endTime = endTime.ToLocalTime();
             JsonObject location = JsonValueReader.GetObject(graphEvent, "location") ?? new JsonObject();
             return new Appointment
             {
@@ -470,8 +490,19 @@ namespace GraphMobileSync.Services
                 Location = JsonValueReader.GetString(location, "displayName", string.Empty),
                 StartTime = startTime,
                 Duration = endTime - startTime,
-                AllDay = JsonValueReader.GetBoolean(graphEvent, "isAllDay", false)
+                AllDay = isAllDay
             };
+        }
+
+        private static bool TryParseGraphDate(string value, out DateTime date)
+        {
+            // Only the calendar date matters for all-day events; any time or zone suffix is ignored.
+            return DateTime.TryParseExact(
+                value != null && value.Length >= 10 ? value.Substring(0, 10) : value,
+                "yyyy-MM-dd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out date);
         }
 
         private static void PopulateAppointment(Appointment destination, Appointment source)

@@ -557,6 +557,17 @@ namespace GraphMobileSync.Services
             JsonObject location = new JsonObject();
             SetString(location, "displayName", appointment.Location);
             graphEvent.SetNamedValue("location", location);
+
+            if (appointment.AllDay)
+            {
+                // Graph rejects all-day events whose start or end is not midnight, so send whole dates.
+                DateTime startDate = appointment.StartTime.ToLocalTime().Date;
+                int days = Math.Max(1, (int)Math.Round(appointment.Duration.TotalDays));
+                graphEvent.SetNamedValue("start", CreateGraphDateTime(startDate));
+                graphEvent.SetNamedValue("end", CreateGraphDateTime(startDate.AddDays(days)));
+                return graphEvent;
+            }
+
             graphEvent.SetNamedValue("start", CreateGraphDateTime(appointment.StartTime));
             graphEvent.SetNamedValue(
                 "end",
@@ -566,12 +577,16 @@ namespace GraphMobileSync.Services
 
         private static JsonObject CreateGraphDateTime(DateTimeOffset value)
         {
-            DateTimeOffset localValue = value.ToLocalTime();
+            return CreateGraphDateTime(value.ToLocalTime().DateTime);
+        }
+
+        private static JsonObject CreateGraphDateTime(DateTime localDateTime)
+        {
             JsonObject graphDateTime = new JsonObject();
             SetString(
                 graphDateTime,
                 "dateTime",
-                localValue.DateTime.ToString(
+                localDateTime.ToString(
                     "yyyy-MM-ddTHH:mm:ss",
                     CultureInfo.InvariantCulture));
             SetString(graphDateTime, "timeZone", TimeZoneInfo.Local.Id);
